@@ -1,0 +1,15 @@
+# Copy this file to terraform.tfvars and customize
+
+ssh_user             = "ubuntu"
+ssh_private_key_file = "~/.ssh/id_ed25519"
+
+control_plane_ip  = "10.0.0.201"
+control_plane_vip = "10.0.0.200"
+
+worker_nodes = {
+  "k8s-worker-1" = "10.0.0.204"
+  "k8s-worker-2" = "10.0.0.205"
+}
+
+kubernetes_version = "1.31.3"
+cilium_version     = "1.16.4"
