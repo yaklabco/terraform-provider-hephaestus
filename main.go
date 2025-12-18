@@ -1,0 +1,37 @@
+// Copyright (c) YakLab
+// SPDX-License-Identifier: MPL-2.0
+
+package main
+
+import (
+	"context"
+	"flag"
+	"log"
+
+	"github.com/hashicorp/terraform-plugin-framework/providerserver"
+	"github.com/yaklab/terraform-provider-hephaestus/internal/provider"
+)
+
+var (
+	// version is set by goreleaser at build time.
+	version string = "dev"
+)
+
+func main() {
+	var debug bool
+
+	flag.BoolVar(&debug, "debug", false, "set to true to run the provider with support for debuggers like delve")
+	flag.Parse()
+
+	opts := providerserver.ServeOpts{
+		// Address is the provider address for the Terraform/OpenTofu registry.
+		// For OpenTofu, this works the same way as Terraform.
+		Address: "registry.terraform.io/yaklab/hephaestus",
+		Debug:   debug,
+	}
+
+	err := providerserver.Serve(context.Background(), provider.New(version), opts)
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+}
