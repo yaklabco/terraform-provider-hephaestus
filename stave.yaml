@@ -1,0 +1,4 @@
+# Stave configuration for terraform-provider-hephaestus
+# See: https://github.com/yaklabco/stave
+
+hash_fast: true
