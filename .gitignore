@@ -2,6 +2,10 @@
 *.exe
 .DS_Store
 
+# Coverage output
+coverage.out
+coverage.html
+
 # Provider binary
 terraform-provider-hephaestus
 example.tf
