@@ -19,6 +19,11 @@ import (
 	"github.com/yaklab/terraform-provider-hephaestus/internal/client"
 )
 
+const (
+	statusRunning        = "Running"
+	operatorPodPartCount = 4
+)
+
 var _ datasource.DataSource = &TailscaleStatusDataSource{}
 
 func NewTailscaleStatusDataSource() datasource.DataSource {
@@ -59,11 +64,11 @@ type DeviceInfo struct {
 	Tags        string `tfsdk:"tags"`
 }
 
-func (d *TailscaleStatusDataSource) Metadata(ctx context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
+func (d *TailscaleStatusDataSource) Metadata(_ context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + "_tailscale_status"
 }
 
-func (d *TailscaleStatusDataSource) Schema(ctx context.Context, req datasource.SchemaRequest, resp *datasource.SchemaResponse) {
+func (d *TailscaleStatusDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		MarkdownDescription: `Retrieves the current status of Tailscale integration in the cluster.
 
@@ -195,7 +200,7 @@ output "tailscale_api_ip" {
 	}
 }
 
-func (d *TailscaleStatusDataSource) Configure(ctx context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
+func (d *TailscaleStatusDataSource) Configure(_ context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
 	if req.ProviderData == nil {
 		return
 	}
@@ -231,7 +236,7 @@ func (d *TailscaleStatusDataSource) Read(ctx context.Context, req datasource.Rea
 	})
 
 	// Set ID
-	config.ID = types.StringValue(fmt.Sprintf("tailscale-status-%s", namespace))
+	config.ID = types.StringValue("tailscale-status-" + namespace)
 	config.Namespace = types.StringValue(namespace)
 
 	// Initialize defaults
@@ -254,10 +259,10 @@ func (d *TailscaleStatusDataSource) Read(ctx context.Context, req datasource.Rea
 	d.checkAPIService(ctx, cpIP, namespace, &config)
 
 	// Get proxy pods
-	d.getProxyPods(ctx, cpIP, namespace, &config)
+	d.populateProxyPods(ctx, cpIP, namespace, &config)
 
 	// Get device info from secrets
-	d.getDevices(ctx, cpIP, namespace, &config)
+	d.populateDevices(ctx, cpIP, namespace, &config)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &config)...)
 }
@@ -287,7 +292,9 @@ func (d *TailscaleStatusDataSource) checkHelmStatus(ctx context.Context, cpIP, n
 }
 
 func (d *TailscaleStatusDataSource) checkOperatorPod(ctx context.Context, cpIP, namespace string, config *TailscaleStatusDataSourceModel) {
-	cmd := fmt.Sprintf(`kubectl get pods -n %s -l app.kubernetes.io/name=operator -o jsonpath='{.items[0].metadata.name}:{.items[0].status.phase}:{.items[0].status.podIP}:{.items[0].status.containerStatuses[0].ready}' --kubeconfig=/etc/kubernetes/admin.conf 2>/dev/null`, namespace)
+	cmd := fmt.Sprintf(`kubectl get pods -n %s -l app.kubernetes.io/name=operator `+
+		`-o jsonpath='{.items[0].metadata.name}:{.items[0].status.phase}:{.items[0].status.podIP}:{.items[0].status.containerStatuses[0].ready}' `+
+		`--kubeconfig=/etc/kubernetes/admin.conf 2>/dev/null`, namespace)
 	out, err := d.ssh.OutputSudo(ctx, cpIP, cmd)
 	if err != nil {
 		return
@@ -295,10 +302,10 @@ func (d *TailscaleStatusDataSource) checkOperatorPod(ctx context.Context, cpIP, 
 
 	out = strings.Trim(out, "'\" \n")
 	parts := strings.Split(out, ":")
-	if len(parts) >= 4 {
+	if len(parts) >= operatorPodPartCount {
 		config.OperatorPodName = types.StringValue(parts[0])
 		config.OperatorPodIP = types.StringValue(parts[2])
-		config.OperatorReady = types.BoolValue(parts[1] == "Running" && parts[3] == "true")
+		config.OperatorReady = types.BoolValue(parts[1] == statusRunning && parts[3] == "true")
 	}
 }
 
@@ -313,7 +320,8 @@ func (d *TailscaleStatusDataSource) checkAPIService(ctx context.Context, cpIP, n
 	config.APIServiceExists = types.BoolValue(true)
 
 	// Try to get the Tailscale IP from the proxy pod's secret
-	cmd = fmt.Sprintf(`kubectl get secret -n %s -l tailscale.com/parent-resource=kubernetes-api-tailscale -o jsonpath='{.items[0].data.device_ips}' --kubeconfig=/etc/kubernetes/admin.conf 2>/dev/null | base64 -d 2>/dev/null`, namespace)
+	cmd = fmt.Sprintf(`kubectl get secret -n %s -l tailscale.com/parent-resource=kubernetes-api-tailscale `+
+		`-o jsonpath='{.items[0].data.device_ips}' --kubeconfig=/etc/kubernetes/admin.conf 2>/dev/null | base64 -d 2>/dev/null`, namespace)
 	out, err = d.ssh.OutputSudo(ctx, cpIP, cmd)
 	if err == nil && out != "" {
 		out = strings.Trim(out, "'\" \n[]")
@@ -327,7 +335,7 @@ func (d *TailscaleStatusDataSource) checkAPIService(ctx context.Context, cpIP, n
 	}
 }
 
-func (d *TailscaleStatusDataSource) getProxyPods(ctx context.Context, cpIP, namespace string, config *TailscaleStatusDataSourceModel) {
+func (d *TailscaleStatusDataSource) populateProxyPods(ctx context.Context, cpIP, namespace string, config *TailscaleStatusDataSourceModel) {
 	cmd := fmt.Sprintf(`kubectl get pods -n %s -l tailscale.com/managed=true -o json --kubeconfig=/etc/kubernetes/admin.conf 2>/dev/null`, namespace)
 	out, err := d.ssh.OutputSudo(ctx, cpIP, cmd)
 	if err != nil {
@@ -367,7 +375,7 @@ func (d *TailscaleStatusDataSource) getProxyPods(ctx context.Context, cpIP, name
 		}
 		proxyPods = append(proxyPods, ProxyPodInfo{
 			Name:      pod.Metadata.Name,
-			Ready:     pod.Status.Phase == "Running" && ready,
+			Ready:     pod.Status.Phase == statusRunning && ready,
 			IP:        pod.Status.PodIP,
 			Node:      pod.Spec.NodeName,
 			ParentSvc: pod.Metadata.Labels["tailscale.com/parent-resource"],
@@ -391,7 +399,7 @@ func (d *TailscaleStatusDataSource) getProxyPods(ctx context.Context, cpIP, name
 	config.ProxyPods = proxyPodsValue
 }
 
-func (d *TailscaleStatusDataSource) getDevices(ctx context.Context, cpIP, namespace string, config *TailscaleStatusDataSourceModel) {
+func (d *TailscaleStatusDataSource) populateDevices(ctx context.Context, cpIP, namespace string, config *TailscaleStatusDataSourceModel) {
 	// Get device info from tailscale state secrets
 	cmd := fmt.Sprintf(`kubectl get secrets -n %s -l tailscale.com/managed=true -o json --kubeconfig=/etc/kubernetes/admin.conf 2>/dev/null`, namespace)
 	out, err := d.ssh.OutputSudo(ctx, cpIP, cmd)

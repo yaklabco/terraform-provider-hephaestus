@@ -25,6 +25,8 @@ import (
 	"github.com/yaklab/terraform-provider-hephaestus/internal/verifier"
 )
 
+const addonTypeHelm = "helm"
+
 var _ resource.Resource = &AddonResource{}
 var _ resource.ResourceWithImportState = &AddonResource{}
 
@@ -54,11 +56,11 @@ type AddonResourceModel struct {
 	Status           types.String `tfsdk:"status"`
 }
 
-func (r *AddonResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
+func (r *AddonResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + "_addon"
 }
 
-func (r *AddonResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
+func (r *AddonResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		MarkdownDescription: `Installs cluster addons via Helm or manifests.
 
@@ -189,7 +191,7 @@ resource "hephaestus_addon" "tailscale" {
 	}
 }
 
-func (r *AddonResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+func (r *AddonResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
 	if req.ProviderData == nil {
 		return
 	}
@@ -225,7 +227,7 @@ func (r *AddonResource) Create(ctx context.Context, req resource.CreateRequest, 
 	})
 
 	// Ensure helm is installed
-	if addonType == "helm" {
+	if addonType == addonTypeHelm {
 		if err := r.ensureHelm(ctx, cpIP); err != nil {
 			resp.Diagnostics.AddError("Helm Setup Failed", err.Error())
 			return
@@ -235,12 +237,12 @@ func (r *AddonResource) Create(ctx context.Context, req resource.CreateRequest, 
 	// Install the addon
 	var err error
 	switch addonType {
-	case "helm":
+	case addonTypeHelm:
 		err = r.installHelmChart(ctx, &plan)
 	case "manifest":
 		err = r.installManifest(ctx, &plan)
 	default:
-		resp.Diagnostics.AddError("Unknown Addon Type", fmt.Sprintf("Unknown type: %s", addonType))
+		resp.Diagnostics.AddError("Unknown Addon Type", "Unknown type: "+addonType)
 		return
 	}
 
@@ -294,7 +296,7 @@ func (r *AddonResource) Update(ctx context.Context, req resource.UpdateRequest, 
 	}
 
 	// Upgrade helm release if version or values changed
-	if plan.Type.ValueString() == "helm" {
+	if plan.Type.ValueString() == addonTypeHelm {
 		needsUpgrade := !plan.Version.Equal(state.Version) || !plan.Values.Equal(state.Values)
 		if needsUpgrade {
 			tflog.Info(ctx, "Upgrading helm release")
@@ -325,9 +327,11 @@ func (r *AddonResource) Delete(ctx context.Context, req resource.DeleteRequest, 
 
 	tflog.Info(ctx, "Uninstalling addon", map[string]interface{}{"name": name})
 
-	if addonType == "helm" {
+	if addonType == addonTypeHelm {
 		cmd := fmt.Sprintf("helm uninstall %s -n %s --kubeconfig=/etc/kubernetes/admin.conf 2>/dev/null || true", name, namespace)
-		_ = r.ssh.RunSudo(ctx, cpIP, cmd)
+		if err := r.ssh.RunSudo(ctx, cpIP, cmd); err != nil {
+			tflog.Warn(ctx, "Helm uninstall returned error (may be expected)", map[string]interface{}{"error": err.Error()})
+		}
 	}
 
 	tflog.Info(ctx, "Addon uninstalled")
@@ -411,18 +415,18 @@ helm upgrade --install %s %s \
   --create-namespace`, repoSetup, name, chartRef, namespace)
 
 	if version != "" {
-		cmd += fmt.Sprintf(" \\\n  --version %s", version)
+		cmd += " \\\n  --version " + version
 	}
 
 	if valuesFlag != "" {
-		cmd += fmt.Sprintf(" \\\n  %s", valuesFlag)
+		cmd += " \\\n  " + valuesFlag
 	}
 
 	if wait {
 		cmd += " \\\n  --wait"
 	}
 
-	cmd += fmt.Sprintf(" \\\n  --timeout %s", timeout)
+	cmd += " \\\n  --timeout " + timeout
 
 	_, stderr, err := r.ssh.RunScript(ctx, cpIP, cmd)
 	if err != nil {
@@ -445,7 +449,7 @@ func (r *AddonResource) installManifest(ctx context.Context, model *AddonResourc
 		return fmt.Errorf("unknown manifest addon: %s (only built-in manifests are supported)", name)
 	}
 
-	cmd := fmt.Sprintf("kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f %s", manifestURL)
+	cmd := "kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f " + manifestURL
 	_, stderr, err := r.ssh.RunScript(ctx, cpIP, cmd)
 	if err != nil {
 		return fmt.Errorf("kubectl apply: %w\n%s", err, stderr)
@@ -468,7 +472,7 @@ func (r *AddonResource) refreshStatus(ctx context.Context, model *AddonResourceM
 		model.Status = types.StringValue("unknown")
 	}
 
-	if addonType == "helm" {
+	if addonType == addonTypeHelm {
 		cmd := fmt.Sprintf("helm status %s -n %s --kubeconfig=/etc/kubernetes/admin.conf -o json 2>/dev/null", name, namespace)
 		out, err := r.ssh.OutputSudo(ctx, cpIP, cmd)
 		if err != nil {
@@ -490,19 +494,19 @@ func (r *AddonResource) refreshStatus(ctx context.Context, model *AddonResourceM
 			// Extract version from chart name (e.g., "cilium-1.16.4" -> "1.16.4")
 			if parts := strings.Split(status.Chart, "-"); len(parts) > 1 {
 				model.InstalledVersion = types.StringValue(parts[len(parts)-1])
-			} else {
-				// Chart name doesn't contain version, use requested version or empty
-				if !model.Version.IsNull() && model.Version.ValueString() != "" {
-					model.InstalledVersion = types.StringValue(model.Version.ValueString())
-				}
+			} else if !model.Version.IsNull() && model.Version.ValueString() != "" {
+				// Chart name doesn't contain version, use requested version
+				model.InstalledVersion = types.StringValue(model.Version.ValueString())
 			}
 		} else {
 			tflog.Warn(ctx, "Failed to parse helm status JSON", map[string]interface{}{
 				"error": err.Error(),
 			})
 		}
-	} else {
-		// For manifests, just check if the primary resource exists
+	}
+
+	// For manifests, just check if the primary resource exists
+	if addonType != addonTypeHelm {
 		model.Status = types.StringValue("deployed")
 		// Use requested version for manifests
 		if !model.Version.IsNull() && model.Version.ValueString() != "" {

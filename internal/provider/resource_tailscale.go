@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -21,8 +22,16 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 
+	"net"
+
 	"github.com/yaklab/terraform-provider-hephaestus/internal/client"
 	"github.com/yaklab/terraform-provider-hephaestus/internal/verifier"
+)
+
+const (
+	defaultHTTPSPort    = 443
+	apiWaitTimeout      = 5 * time.Minute
+	apiWaitPollInterval = 10 * time.Second
 )
 
 var _ resource.Resource = &TailscaleResource{}
@@ -66,11 +75,11 @@ type TailscaleResourceModel struct {
 	APIServerTailscaleIP types.String `tfsdk:"api_server_tailscale_ip"`
 }
 
-func (r *TailscaleResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
+func (r *TailscaleResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + "_tailscale"
 }
 
-func (r *TailscaleResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
+func (r *TailscaleResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		MarkdownDescription: `Installs and configures Tailscale integration for the Kubernetes cluster.
 
@@ -218,7 +227,7 @@ output "tailscale_kubeconfig" {
 	}
 }
 
-func (r *TailscaleResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+func (r *TailscaleResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
 	if req.ProviderData == nil {
 		return
 	}
@@ -299,7 +308,7 @@ func (r *TailscaleResource) Create(ctx context.Context, req resource.CreateReque
 	}
 
 	// Set computed values
-	plan.ID = types.StringValue(fmt.Sprintf("%s-tailscale", plan.ClusterID.ValueString()))
+	plan.ID = types.StringValue(plan.ClusterID.ValueString() + "-tailscale")
 	r.refreshStatus(ctx, &plan)
 
 	tflog.Info(ctx, "Tailscale integration installed successfully")
@@ -452,7 +461,11 @@ func (r *TailscaleResource) Delete(ctx context.Context, req resource.DeleteReque
 	// Delete namespace (cleanup)
 	cmd = fmt.Sprintf("kubectl delete namespace %s --kubeconfig=/etc/kubernetes/admin.conf --ignore-not-found=true",
 		namespace)
-	_ = r.ssh.RunSudo(ctx, cpIP, cmd)
+	if err := r.ssh.RunSudo(ctx, cpIP, cmd); err != nil {
+		tflog.Warn(ctx, "Failed to delete namespace", map[string]interface{}{
+			"error": err.Error(),
+		})
+	}
 
 	tflog.Info(ctx, "Tailscale integration removed")
 }
@@ -558,7 +571,7 @@ func (r *TailscaleResource) createAPIServerService(ctx context.Context, model *T
 		"hostname": hostname,
 	})
 
-	port := int64(443)
+	port := int64(defaultHTTPSPort)
 	if !model.APIServerPort.IsNull() {
 		port = model.APIServerPort.ValueInt64()
 	}
@@ -613,7 +626,7 @@ func (r *TailscaleResource) deploySubnetRouter(ctx context.Context, model *Tails
 	})
 
 	routeStr := strings.Join(routes, ",")
-	hostname := fmt.Sprintf("%s-subnet-router", model.HostnamePrefix.ValueString())
+	hostname := model.HostnamePrefix.ValueString() + "-subnet-router"
 
 	manifest := fmt.Sprintf(`apiVersion: v1
 kind: Secret
@@ -738,12 +751,16 @@ func (r *TailscaleResource) waitForAPIServer(ctx context.Context, model *Tailsca
 	tflog.Info(ctx, "Waiting for Tailscale API server proxy")
 
 	// Wait for the tailscale proxy pod to be ready
-	deadline := time.Now().Add(5 * time.Minute)
+	deadline := time.Now().Add(apiWaitTimeout)
 	for time.Now().Before(deadline) {
 		// Check if the proxy is ready by looking for the operator-managed proxy
-		cmd := fmt.Sprintf("kubectl get pods -n %s -l tailscale.com/parent-resource=kubernetes-api-tailscale --kubeconfig=/etc/kubernetes/admin.conf -o jsonpath='{.items[0].status.phase}' 2>/dev/null || echo 'NotFound'",
+		cmd := fmt.Sprintf(`kubectl get pods -n %s -l tailscale.com/parent-resource=kubernetes-api-tailscale `+
+			`--kubeconfig=/etc/kubernetes/admin.conf -o jsonpath='{.items[0].status.phase}' 2>/dev/null || echo 'NotFound'`,
 			namespace)
-		out, _ := r.ssh.OutputSudo(ctx, cpIP, cmd)
+		out, err := r.ssh.OutputSudo(ctx, cpIP, cmd)
+		if err != nil {
+			tflog.Debug(ctx, "Could not query pod status", map[string]interface{}{"error": err.Error()})
+		}
 		out = strings.Trim(out, "'\" \n")
 
 		if out == "Running" {
@@ -758,10 +775,10 @@ func (r *TailscaleResource) waitForAPIServer(ctx context.Context, model *Tailsca
 			"status":   out,
 			"hostname": hostname,
 		})
-		time.Sleep(10 * time.Second)
+		time.Sleep(apiWaitPollInterval)
 	}
 
-	return fmt.Errorf("timeout waiting for Tailscale API server proxy")
+	return errors.New("timeout waiting for Tailscale API server proxy")
 }
 
 // refreshTailscaleIP attempts to get the Tailscale IP for the API server.
@@ -770,12 +787,14 @@ func (r *TailscaleResource) refreshTailscaleIP(ctx context.Context, model *Tails
 	namespace := model.Namespace.ValueString()
 
 	// Get the IP from the tailscale state secret
-	cmd := fmt.Sprintf(`kubectl get secret -n %s -l tailscale.com/parent-resource=kubernetes-api-tailscale -o jsonpath='{.items[0].data.device_ips}' --kubeconfig=/etc/kubernetes/admin.conf 2>/dev/null | base64 -d 2>/dev/null || echo ''`,
+	cmd := fmt.Sprintf(`kubectl get secret -n %s -l tailscale.com/parent-resource=kubernetes-api-tailscale `+
+		`-o jsonpath='{.items[0].data.device_ips}' --kubeconfig=/etc/kubernetes/admin.conf 2>/dev/null | base64 -d 2>/dev/null || echo ''`,
 		namespace)
 	out, err := r.ssh.OutputSudo(ctx, cpIP, cmd)
 	if err != nil || out == "" {
 		// Try alternative method - get from pod annotations
-		cmd = fmt.Sprintf(`kubectl get pods -n %s -l tailscale.com/parent-resource=kubernetes-api-tailscale -o jsonpath='{.items[0].metadata.annotations.tailscale\.com/ts-ips}' --kubeconfig=/etc/kubernetes/admin.conf 2>/dev/null || echo ''`,
+		cmd = fmt.Sprintf(`kubectl get pods -n %s -l tailscale.com/parent-resource=kubernetes-api-tailscale `+
+			`-o jsonpath='{.items[0].metadata.annotations.tailscale\.com/ts-ips}' --kubeconfig=/etc/kubernetes/admin.conf 2>/dev/null || echo ''`,
 			namespace)
 		out, err = r.ssh.OutputSudo(ctx, cpIP, cmd)
 		if err != nil {
@@ -794,7 +813,7 @@ func (r *TailscaleResource) refreshTailscaleIP(ctx context.Context, model *Tails
 		}
 	}
 
-	return fmt.Errorf("tailscale IP not yet available")
+	return errors.New("tailscale IP not yet available")
 }
 
 // generateTailscaleKubeconfig generates a kubeconfig using the Tailscale endpoint.
@@ -803,7 +822,9 @@ func (r *TailscaleResource) generateTailscaleKubeconfig(ctx context.Context, mod
 	hostname := model.APIServerHostname.ValueString()
 
 	// First try to refresh the Tailscale IP
-	_ = r.refreshTailscaleIP(ctx, model)
+	if err := r.refreshTailscaleIP(ctx, model); err != nil {
+		tflog.Debug(ctx, "Could not refresh Tailscale IP for kubeconfig", map[string]interface{}{"error": err.Error()})
+	}
 
 	// Get the cluster CA certificate
 	cmd := "kubectl get cm kube-root-ca.crt -n default -o jsonpath='{.data.ca\\.crt}' --kubeconfig=/etc/kubernetes/admin.conf"
@@ -835,11 +856,11 @@ func (r *TailscaleResource) generateTailscaleKubeconfig(ctx context.Context, mod
 	}
 
 	if clientCert == "" || clientKey == "" {
-		return fmt.Errorf("could not extract client credentials from admin.conf")
+		return errors.New("could not extract client credentials from admin.conf")
 	}
 
 	// Build server URL - use Tailscale hostname or IP
-	serverURL := fmt.Sprintf("https://%s:443", hostname)
+	serverURL := "https://" + net.JoinHostPort(hostname, "443")
 	if !model.APIServerTailscaleIP.IsNull() && model.APIServerTailscaleIP.ValueString() != "" {
 		// Also have the IP available but prefer hostname
 		tflog.Debug(ctx, "Tailscale IP available", map[string]interface{}{
@@ -916,6 +937,8 @@ func (r *TailscaleResource) refreshStatus(ctx context.Context, model *TailscaleR
 
 	// Refresh Tailscale IP if API server is exposed
 	if model.ExposeAPIServer.ValueBool() {
-		_ = r.refreshTailscaleIP(ctx, model)
+		if err := r.refreshTailscaleIP(ctx, model); err != nil {
+			tflog.Debug(ctx, "Could not refresh Tailscale IP during status refresh", map[string]interface{}{"error": err.Error()})
+		}
 	}
 }

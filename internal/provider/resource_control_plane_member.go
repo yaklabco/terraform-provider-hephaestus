@@ -21,6 +21,8 @@ import (
 	"github.com/yaklab/terraform-provider-hephaestus/internal/verifier"
 )
 
+const defaultIfaceMember = "eth0"
+
 var _ resource.Resource = &ControlPlaneMemberResource{}
 var _ resource.ResourceWithImportState = &ControlPlaneMemberResource{}
 
@@ -51,11 +53,11 @@ type ControlPlaneMemberResourceModel struct {
 	KubeVIPDeployed types.Bool   `tfsdk:"kubevip_deployed"`
 }
 
-func (r *ControlPlaneMemberResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
+func (r *ControlPlaneMemberResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + "_control_plane_member"
 }
 
-func (r *ControlPlaneMemberResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
+func (r *ControlPlaneMemberResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		MarkdownDescription: `Joins an additional control plane node to an existing Kubernetes cluster for high availability.
 
@@ -155,7 +157,7 @@ resource "hephaestus_control_plane_member" "secondary" {
 	}
 }
 
-func (r *ControlPlaneMemberResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+func (r *ControlPlaneMemberResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
 	if req.ProviderData == nil {
 		return
 	}
@@ -224,9 +226,9 @@ kubeadm join %s --token %s --discovery-token-ca-cert-hash %s --control-plane --c
 
 	// Deploy kube-vip
 	tflog.Info(ctx, "Deploying kube-vip on member")
-	iface, _ := r.ssh.Output(ctx, ip, "ip route show default | head -n 1 | cut -d' ' -f5")
-	if iface == "" {
-		iface = "eth0"
+	iface, err := r.ssh.Output(ctx, ip, "ip route show default | head -n 1 | cut -d' ' -f5")
+	if err != nil || iface == "" {
+		iface = defaultIfaceMember
 	}
 	if err := r.deployKubeVip(ctx, ip, vip, strings.TrimSpace(iface)); err != nil {
 		resp.Diagnostics.AddWarning("kube-vip Deployment Warning", err.Error())
@@ -305,10 +307,13 @@ func (r *ControlPlaneMemberResource) Delete(ctx context.Context, req resource.De
 	endpointIP := strings.Split(endpoint, ":")[0]
 
 	drainScript := fmt.Sprintf(`
-kubectl --kubeconfig=/etc/kubernetes/admin.conf drain %s --ignore-daemonsets --delete-emptydir-data --force 2>/dev/null || true
+kubectl --kubeconfig=/etc/kubernetes/admin.conf drain %s \
+  --ignore-daemonsets --delete-emptydir-data --force 2>/dev/null || true
 kubectl --kubeconfig=/etc/kubernetes/admin.conf delete node %s 2>/dev/null || true
 `, name, name)
-	_, _, _ = r.ssh.RunScript(ctx, endpointIP, drainScript)
+	if _, _, err := r.ssh.RunScript(ctx, endpointIP, drainScript); err != nil {
+		tflog.Warn(ctx, "Drain script returned error (may be expected)", map[string]interface{}{"error": err.Error()})
+	}
 
 	// Reset the node
 	resetScript := `set -euo pipefail

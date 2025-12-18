@@ -7,6 +7,7 @@ package client
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -41,6 +42,8 @@ const (
 	defaultConnAttempts = 3
 	sshControlPersist   = "60"
 	sshControlDir       = "/tmp/hephaestus-ssh-mux"
+	keyFilePermissions  = 0o600
+	controlDirPerms     = 0o700
 )
 
 // NewSSHClient creates a new SSH client from configuration.
@@ -72,7 +75,7 @@ func NewSSHClient(cfg SSHConfig) (*SSHClient, error) {
 			_ = os.Remove(tmpFile.Name())
 			return nil, fmt.Errorf("write temp key file: %w", err)
 		}
-		if err := tmpFile.Chmod(0600); err != nil {
+		if err := tmpFile.Chmod(keyFilePermissions); err != nil {
 			_ = tmpFile.Close()
 			_ = os.Remove(tmpFile.Name())
 			return nil, fmt.Errorf("chmod temp key file: %w", err)
@@ -93,7 +96,9 @@ func NewSSHClient(cfg SSHConfig) (*SSHClient, error) {
 	}
 
 	if client.useMux {
-		_ = os.MkdirAll(client.controlDir, 0700)
+		if err := os.MkdirAll(client.controlDir, controlDirPerms); err != nil {
+			return nil, fmt.Errorf("create control directory: %w", err)
+		}
 	}
 
 	return client, nil
@@ -128,8 +133,8 @@ func (c *SSHClient) sshArgs() []string {
 		controlPath := filepath.Join(c.controlDir, "%h")
 		args = append(args,
 			"-o", "ControlMaster=auto",
-			"-o", fmt.Sprintf("ControlPath=%s", controlPath),
-			"-o", fmt.Sprintf("ControlPersist=%s", sshControlPersist),
+			"-o", "ControlPath="+controlPath,
+			"-o", "ControlPersist="+sshControlPersist,
 		)
 	}
 
@@ -200,7 +205,7 @@ func (c *SSHClient) OutputSudo(ctx context.Context, ip, cmd string) (string, err
 }
 
 // RunScript streams a script to bash -s via stdin.
-func (c *SSHClient) RunScript(ctx context.Context, ip, script string) (stdout, stderr string, err error) {
+func (c *SSHClient) RunScript(ctx context.Context, ip, script string) (string, string, error) {
 	args := append(c.sshArgs(), fmt.Sprintf("%s@%s", c.user, ip), "sudo bash -s")
 
 	var stdoutBuf, stderrBuf bytes.Buffer
@@ -290,34 +295,42 @@ func (c *SSHClient) WaitForSSH(ctx context.Context, ip string, maxWait time.Dura
 }
 
 // Close terminates the SSH control master for a specific host.
-func (c *SSHClient) Close(ip string) {
+// Returns any error from the SSH exit command.
+func (c *SSHClient) Close(ctx context.Context, ip string) error {
 	if !c.useMux {
-		return
+		return nil
 	}
 	controlPath := filepath.Join(c.controlDir, ip)
-	args := []string{"-O", "exit", "-o", fmt.Sprintf("ControlPath=%s", controlPath), fmt.Sprintf("%s@%s", c.user, ip)}
-	cmd := exec.Command("ssh", args...)
-	_ = cmd.Run()
+	args := []string{"-O", "exit", "-o", "ControlPath=" + controlPath, fmt.Sprintf("%s@%s", c.user, ip)}
+	cmd := exec.CommandContext(ctx, "ssh", args...)
+	return cmd.Run()
 }
 
 // CloseAll terminates all SSH control masters.
-func (c *SSHClient) CloseAll() {
+// Errors from individual close operations are collected but do not stop cleanup.
+func (c *SSHClient) CloseAll(ctx context.Context) error {
 	if !c.useMux || c.controlDir == "" {
-		return
+		return nil
 	}
 	entries, err := os.ReadDir(c.controlDir)
 	if err != nil {
-		return
+		return fmt.Errorf("read control directory: %w", err)
 	}
+	var errs []error
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			socketPath := filepath.Join(c.controlDir, entry.Name())
-			args := []string{"-O", "exit", "-o", fmt.Sprintf("ControlPath=%s", socketPath), "dummy"}
-			cmd := exec.Command("ssh", args...)
-			_ = cmd.Run()
-			_ = os.Remove(socketPath)
+			args := []string{"-O", "exit", "-o", "ControlPath=" + socketPath, "dummy"}
+			cmd := exec.CommandContext(ctx, "ssh", args...)
+			if err := cmd.Run(); err != nil {
+				errs = append(errs, fmt.Errorf("close %s: %w", entry.Name(), err))
+			}
+			if err := os.Remove(socketPath); err != nil && !os.IsNotExist(err) {
+				errs = append(errs, fmt.Errorf("remove socket %s: %w", socketPath, err))
+			}
 		}
 	}
+	return errors.Join(errs...)
 }
 
 // RemoteError provides structured error information for SSH failures.
@@ -346,7 +359,8 @@ func exitCode(err error) int {
 	if err == nil {
 		return 0
 	}
-	if exitErr, ok := err.(*exec.ExitError); ok {
+	exitErr := &exec.ExitError{}
+	if errors.As(err, &exitErr) {
 		return exitErr.ExitCode()
 	}
 	return -1

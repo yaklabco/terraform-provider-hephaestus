@@ -24,6 +24,8 @@ import (
 	"github.com/yaklab/terraform-provider-hephaestus/internal/verifier"
 )
 
+const defaultNodePrepTimeout = 10 * time.Minute
+
 // Ensure provider defined types fully satisfy framework interfaces.
 var _ resource.Resource = &NodeResource{}
 var _ resource.ResourceWithImportState = &NodeResource{}
@@ -52,11 +54,11 @@ type NodeResourceModel struct {
 	KubeadmVersion    types.String `tfsdk:"kubeadm_version"`
 }
 
-func (r *NodeResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
+func (r *NodeResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + "_node"
 }
 
-func (r *NodeResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
+func (r *NodeResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		MarkdownDescription: `Prepares a node for Kubernetes cluster membership by configuring OS prerequisites, 
 installing the containerd runtime, and installing kubeadm tools (kubeadm, kubelet, kubectl).
@@ -139,7 +141,7 @@ resource "hephaestus_node" "workers" {
 	}
 }
 
-func (r *NodeResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+func (r *NodeResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
 	if req.ProviderData == nil {
 		return
 	}
@@ -177,7 +179,10 @@ func (r *NodeResource) Create(ctx context.Context, req resource.CreateRequest, r
 
 	// Wait for SSH to be available
 	tflog.Debug(ctx, "Waiting for SSH availability")
-	timeout, _ := time.ParseDuration(r.timeouts.NodePrep)
+	timeout, err := time.ParseDuration(r.timeouts.NodePrep)
+	if err != nil {
+		timeout = defaultNodePrepTimeout
+	}
 	if err := r.ssh.WaitForSSH(ctx, ip, timeout); err != nil {
 		resp.Diagnostics.AddError("SSH Not Available", fmt.Sprintf("Cannot connect to node %s: %s", name, err))
 		return
@@ -395,8 +400,12 @@ wait_for_apt() {
     local max_wait=120
     local count=0
     while [ $count -lt $max_wait ]; do
-        if fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; then sleep 1; count=$((count + 1)); continue; fi
-        if fuser /var/lib/apt/lists/lock >/dev/null 2>&1; then sleep 1; count=$((count + 1)); continue; fi
+        if fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; then
+            sleep 1; count=$((count + 1)); continue
+        fi
+        if fuser /var/lib/apt/lists/lock >/dev/null 2>&1; then
+            sleep 1; count=$((count + 1)); continue
+        fi
         break
     done
 }
@@ -406,14 +415,12 @@ apt-get update -qq
 DEBIAN_FRONTEND=noninteractive apt-get install -y -qq containerd
 mkdir -p /etc/containerd
 
-# Handle config version mismatch
-if [ -f /etc/containerd/config.toml ]; then
-    if grep -Eq '^[[:space:]]*version[[:space:]]*=[[:space:]]*3[[:space:]]*$' /etc/containerd/config.toml 2>/dev/null; then
-        mv /etc/containerd/config.toml "/etc/containerd/config.toml.bak.$(date +%s)"
-    fi
-fi
-
-if [ ! -s /etc/containerd/config.toml ]; then
+# Handle config version mismatch and generate default config if needed
+regex='^[[:space:]]*version[[:space:]]*=[[:space:]]*3[[:space:]]*$'
+if [ -f /etc/containerd/config.toml ] && grep -Eq "$regex" /etc/containerd/config.toml 2>/dev/null; then
+    mv /etc/containerd/config.toml "/etc/containerd/config.toml.bak.$(date +%s)"
+    containerd config default > /etc/containerd/config.toml
+elif [ ! -s /etc/containerd/config.toml ]; then
     containerd config default > /etc/containerd/config.toml
 fi
 

@@ -22,6 +22,12 @@ import (
 	"github.com/yaklab/terraform-provider-hephaestus/internal/verifier"
 )
 
+const (
+	defaultNetworkInterface = "eth0"
+	vipWaitTimeout          = 60 * time.Second
+	tokenExpiryHours        = 24
+)
+
 var _ resource.Resource = &ControlPlaneResource{}
 var _ resource.ResourceWithImportState = &ControlPlaneResource{}
 
@@ -56,11 +62,11 @@ type ControlPlaneResourceModel struct {
 	Kubeconfig  types.String `tfsdk:"kubeconfig"`
 }
 
-func (r *ControlPlaneResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
+func (r *ControlPlaneResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + "_control_plane"
 }
 
-func (r *ControlPlaneResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
+func (r *ControlPlaneResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		MarkdownDescription: `Initializes the first control plane node of a Kubernetes cluster using kubeadm init
 and deploys kube-vip for high availability.
@@ -184,7 +190,7 @@ output "kubeconfig" {
 	}
 }
 
-func (r *ControlPlaneResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+func (r *ControlPlaneResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
 	if req.ProviderData == nil {
 		return
 	}
@@ -230,7 +236,7 @@ func (r *ControlPlaneResource) Create(ctx context.Context, req resource.CreateRe
 	if r.verifier.CheckAdminConf(ctx, ip).Passed {
 		tflog.Info(ctx, "Control plane already initialized")
 		plan.ID = types.StringValue(fmt.Sprintf("cluster-%d", time.Now().Unix()))
-		plan.APIEndpoint = types.StringValue(fmt.Sprintf("%s:6443", vip))
+		plan.APIEndpoint = types.StringValue(vip + ":6443")
 		r.refreshJoinMaterial(ctx, &plan, ip)
 		r.refreshKubeconfig(ctx, &plan, ip, vip)
 		resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
@@ -256,9 +262,11 @@ func (r *ControlPlaneResource) Create(ctx context.Context, req resource.CreateRe
 	iface := plan.KubeVIPInterface.ValueString()
 	if iface == "" {
 		// Auto-detect interface
-		iface, _ = r.ssh.Output(ctx, ip, "ip route show default | head -n 1 | cut -d' ' -f5")
-		if iface == "" {
-			iface = "eth0"
+		detectedIface, err := r.ssh.Output(ctx, ip, "ip route show default | head -n 1 | cut -d' ' -f5")
+		if err != nil || detectedIface == "" {
+			iface = defaultNetworkInterface
+		} else {
+			iface = detectedIface
 		}
 	}
 	if err := r.deployKubeVip(ctx, ip, vip, strings.TrimSpace(iface), plan.KubeVIPVersion.ValueString()); err != nil {
@@ -282,7 +290,7 @@ func (r *ControlPlaneResource) Create(ctx context.Context, req resource.CreateRe
 
 	// Set computed values
 	plan.ID = types.StringValue(fmt.Sprintf("cluster-%d", time.Now().Unix()))
-	plan.APIEndpoint = types.StringValue(fmt.Sprintf("%s:6443", vip))
+	plan.APIEndpoint = types.StringValue(vip + ":6443")
 
 	// Extract join material
 	r.refreshJoinMaterial(ctx, &plan, ip)
@@ -345,9 +353,11 @@ func (r *ControlPlaneResource) Update(ctx context.Context, req resource.UpdateRe
 		tflog.Info(ctx, "Updating kube-vip version")
 		iface := plan.KubeVIPInterface.ValueString()
 		if iface == "" {
-			iface, _ = r.ssh.Output(ctx, ip, "ip route show default | head -n 1 | cut -d' ' -f5")
-			if iface == "" {
-				iface = "eth0"
+			detectedIface, err := r.ssh.Output(ctx, ip, "ip route show default | head -n 1 | cut -d' ' -f5")
+			if err != nil || detectedIface == "" {
+				iface = defaultNetworkInterface
+			} else {
+				iface = detectedIface
 			}
 		}
 		if err := r.deployKubeVip(ctx, ip, plan.ControlPlaneVIP.ValueString(), strings.TrimSpace(iface), plan.KubeVIPVersion.ValueString()); err != nil {
@@ -413,7 +423,7 @@ func (r *ControlPlaneResource) ImportState(ctx context.Context, req resource.Imp
 
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("node_ip"), nodeIP)...)
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("control_plane_vip"), vip)...)
-	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("api_endpoint"), fmt.Sprintf("%s:6443", vip))...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("api_endpoint"), vip+":6443")...)
 }
 
 // Helper methods
@@ -505,7 +515,7 @@ spec:
 }
 
 func (r *ControlPlaneResource) waitForVIP(ctx context.Context, ip, vip string) error {
-	timeout := 60 * time.Second
+	timeout := vipWaitTimeout
 	checkInterval := 2 * time.Second
 	deadline := time.Now().Add(timeout)
 
@@ -532,18 +542,25 @@ func (r *ControlPlaneResource) waitForVIP(ctx context.Context, ip, vip string) e
 func (r *ControlPlaneResource) patchClusterConfig(ctx context.Context, ip, vip string) error {
 	// Update admin.conf to use VIP
 	script := fmt.Sprintf(`set -euo pipefail
-sed -i 's|server: https://%s:6443|server: https://%s:6443|g' /etc/kubernetes/admin.conf
+KUBECONFIG=/etc/kubernetes/admin.conf
+sed -i 's|server: https://%s:6443|server: https://%s:6443|g' $KUBECONFIG
 
 # Patch kubeadm-config ConfigMap
-kubectl --kubeconfig=/etc/kubernetes/admin.conf -n kube-system get cm kubeadm-config -o jsonpath='{.data.ClusterConfiguration}' > /tmp/cluster-config.yaml
+kubectl --kubeconfig=$KUBECONFIG -n kube-system \
+  get cm kubeadm-config -o jsonpath='{.data.ClusterConfiguration}' > /tmp/cluster-config.yaml
 sed -i 's|controlPlaneEndpoint:.*|controlPlaneEndpoint: %s:6443|' /tmp/cluster-config.yaml
-kubectl --kubeconfig=/etc/kubernetes/admin.conf -n kube-system create cm kubeadm-config --from-file=ClusterConfiguration=/tmp/cluster-config.yaml --dry-run=client -o yaml | kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f -
+kubectl --kubeconfig=$KUBECONFIG -n kube-system \
+  create cm kubeadm-config --from-file=ClusterConfiguration=/tmp/cluster-config.yaml \
+  --dry-run=client -o yaml | kubectl --kubeconfig=$KUBECONFIG apply -f -
 rm -f /tmp/cluster-config.yaml
 
 # Patch cluster-info ConfigMap
-kubectl --kubeconfig=/etc/kubernetes/admin.conf -n kube-public get cm cluster-info -o jsonpath='{.data.kubeconfig}' > /tmp/cluster-info-kubeconfig.yaml
+kubectl --kubeconfig=$KUBECONFIG -n kube-public \
+  get cm cluster-info -o jsonpath='{.data.kubeconfig}' > /tmp/cluster-info-kubeconfig.yaml
 sed -i 's|server: https://%s:6443|server: https://%s:6443|g' /tmp/cluster-info-kubeconfig.yaml
-kubectl --kubeconfig=/etc/kubernetes/admin.conf -n kube-public create cm cluster-info --from-file=kubeconfig=/tmp/cluster-info-kubeconfig.yaml --dry-run=client -o yaml | kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f -
+kubectl --kubeconfig=$KUBECONFIG -n kube-public \
+  create cm cluster-info --from-file=kubeconfig=/tmp/cluster-info-kubeconfig.yaml \
+  --dry-run=client -o yaml | kubectl --kubeconfig=$KUBECONFIG apply -f -
 rm -f /tmp/cluster-info-kubeconfig.yaml
 `, ip, vip, vip, ip, vip)
 
@@ -556,7 +573,7 @@ func (r *ControlPlaneResource) refreshJoinMaterial(ctx context.Context, model *C
 	token, err := r.ssh.OutputSudo(ctx, ip, "kubeadm token create")
 	if err == nil {
 		model.JoinToken = types.StringValue(strings.TrimSpace(token))
-		model.TokenExpiry = types.StringValue(time.Now().Add(24 * time.Hour).Format(time.RFC3339))
+		model.TokenExpiry = types.StringValue(time.Now().Add(tokenExpiryHours * time.Hour).Format(time.RFC3339))
 	}
 
 	// Get CA hash

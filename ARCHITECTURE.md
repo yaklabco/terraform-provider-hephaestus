@@ -23,7 +23,7 @@ erDiagram
     HEPHAESTUS_CONTROL_PLANE ||--o{ HEPHAESTUS_CONTROL_PLANE_MEMBER : "provides join material"
     HEPHAESTUS_CONTROL_PLANE ||--o{ HEPHAESTUS_WORKER : "provides join material"
     HEPHAESTUS_CONTROL_PLANE ||--o{ HEPHAESTUS_ADDON : "kubeconfig"
-    
+
     HEPHAESTUS_NODE {
         string id PK
         string name
@@ -32,7 +32,7 @@ erDiagram
         string kubernetes_version
         string phase "computed: prepared"
     }
-    
+
     HEPHAESTUS_CONTROL_PLANE {
         string id PK
         string node_id FK
@@ -45,14 +45,14 @@ erDiagram
         string kubeconfig "computed, sensitive"
         string api_endpoint "computed"
     }
-    
+
     HEPHAESTUS_CONTROL_PLANE_MEMBER {
         string id PK
         string node_id FK
         string cluster_id FK
         bool kube_vip_deployed "computed"
     }
-    
+
     HEPHAESTUS_WORKER {
         string id PK
         string node_id FK
@@ -60,7 +60,7 @@ erDiagram
         map labels
         map taints
     }
-    
+
     HEPHAESTUS_ADDON {
         string id PK
         string cluster_id FK
@@ -80,23 +80,23 @@ Prepares a node for Kubernetes by configuring OS prerequisites, installing conta
 
 **Schema:**
 
-| Attribute | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `name` | string | yes | Node hostname |
-| `ip` | string | yes | Node IP address |
-| `role` | string | yes | One of: `control_plane`, `worker`, `gpu_worker` |
-| `kubernetes_version` | string | no | K8s version (default: v1.31.3) |
-| `ssh_user` | string | no | Override provider SSH user |
-| `ssh_private_key` | string | no | Override provider SSH key |
+| Attribute            | Type   | Required | Description                                     |
+| -------------------- | ------ | -------- | ----------------------------------------------- |
+| `name`               | string | yes      | Node hostname                                   |
+| `ip`                 | string | yes      | Node IP address                                 |
+| `role`               | string | yes      | One of: `control_plane`, `worker`, `gpu_worker` |
+| `kubernetes_version` | string | no       | K8s version (default: v1.31.3)                  |
+| `ssh_user`           | string | no       | Override provider SSH user                      |
+| `ssh_private_key`    | string | no       | Override provider SSH key                       |
 
 **Computed:**
 
-| Attribute | Type | Description |
-|-----------|------|-------------|
-| `id` | string | Resource ID (name) |
-| `phase` | string | Current phase: `os_ready`, `runtime_ready`, `kubeadm_ready` |
-| `containerd_version` | string | Installed containerd version |
-| `kubeadm_version` | string | Installed kubeadm version |
+| Attribute            | Type   | Description                                                 |
+| -------------------- | ------ | ----------------------------------------------------------- |
+| `id`                 | string | Resource ID (name)                                          |
+| `phase`              | string | Current phase: `os_ready`, `runtime_ready`, `kubeadm_ready` |
+| `containerd_version` | string | Installed containerd version                                |
+| `kubeadm_version`    | string | Installed kubeadm version                                   |
 
 **Lifecycle:**
 
@@ -107,7 +107,7 @@ stateDiagram-v2
     Prepared --> RuntimeReady: Install containerd
     RuntimeReady --> KubeadmReady: Install kubeadm tools
     KubeadmReady --> [*]: Read() verifies
-    
+
     KubeadmReady --> Drifted: Read() detects missing
     Drifted --> KubeadmReady: Update() reinstalls
 ```
@@ -118,26 +118,26 @@ Initializes the first control plane node with kubeadm init and deploys kube-vip 
 
 **Schema:**
 
-| Attribute | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `node_id` | string | yes | Reference to `hephaestus_node.id` |
-| `control_plane_vip` | string | yes | Virtual IP for HA |
-| `pod_cidr` | string | no | Pod network CIDR (default: 10.244.0.0/16) |
-| `service_cidr` | string | no | Service CIDR (default: 10.96.0.0/12) |
-| `kube_vip_version` | string | no | kube-vip version (default: v0.8.0) |
-| `kube_vip_interface` | string | no | Network interface (default: auto-detect) |
+| Attribute            | Type   | Required | Description                               |
+| -------------------- | ------ | -------- | ----------------------------------------- |
+| `node_id`            | string | yes      | Reference to `hephaestus_node.id`         |
+| `control_plane_vip`  | string | yes      | Virtual IP for HA                         |
+| `pod_cidr`           | string | no       | Pod network CIDR (default: 10.244.0.0/16) |
+| `service_cidr`       | string | no       | Service CIDR (default: 10.96.0.0/12)      |
+| `kube_vip_version`   | string | no       | kube-vip version (default: v0.8.0)        |
+| `kube_vip_interface` | string | no       | Network interface (default: auto-detect)  |
 
 **Computed (sensitive):**
 
-| Attribute | Type | Description |
-|-----------|------|-------------|
-| `id` | string | Cluster ID |
-| `join_token` | string | Bootstrap token (24h TTL) |
-| `ca_cert_hash` | string | CA certificate hash |
-| `certificate_key` | string | Control plane certificate key |
-| `kubeconfig` | string | Admin kubeconfig content |
-| `api_endpoint` | string | API server endpoint (VIP:6443) |
-| `token_expiry` | string | Token expiration timestamp |
+| Attribute         | Type   | Description                    |
+| ----------------- | ------ | ------------------------------ |
+| `id`              | string | Cluster ID                     |
+| `join_token`      | string | Bootstrap token (24h TTL)      |
+| `ca_cert_hash`    | string | CA certificate hash            |
+| `certificate_key` | string | Control plane certificate key  |
+| `kubeconfig`      | string | Admin kubeconfig content       |
+| `api_endpoint`    | string | API server endpoint (VIP:6443) |
+| `token_expiry`    | string | Token expiration timestamp     |
 
 **Lifecycle:**
 
@@ -151,7 +151,7 @@ stateDiagram-v2
     PatchEndpoint --> ExtractJoin: Extract join material
     ExtractJoin --> Ready: Store in state
     Ready --> [*]: Read() verifies
-    
+
     Ready --> TokenExpired: Read() detects expired token
     TokenExpired --> Ready: Update() refreshes token
 ```
@@ -162,19 +162,19 @@ Joins additional control plane nodes to form an HA cluster.
 
 **Schema:**
 
-| Attribute | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `node_id` | string | yes | Reference to `hephaestus_node.id` |
-| `cluster_id` | string | yes | Reference to `hephaestus_control_plane.id` |
+| Attribute    | Type   | Required | Description                                |
+| ------------ | ------ | -------- | ------------------------------------------ |
+| `node_id`    | string | yes      | Reference to `hephaestus_node.id`          |
+| `cluster_id` | string | yes      | Reference to `hephaestus_control_plane.id` |
 
 **Computed:**
 
-| Attribute | Type | Description |
-|-----------|------|-------------|
-| `id` | string | Resource ID |
-| `joined_at` | string | Timestamp when joined |
-| `kube_vip_deployed` | bool | Whether kube-vip is deployed |
-| `etcd_member` | bool | Whether etcd member is healthy |
+| Attribute           | Type   | Description                    |
+| ------------------- | ------ | ------------------------------ |
+| `id`                | string | Resource ID                    |
+| `joined_at`         | string | Timestamp when joined          |
+| `kube_vip_deployed` | bool   | Whether kube-vip is deployed   |
+| `etcd_member`       | bool   | Whether etcd member is healthy |
 
 **Lifecycle:**
 
@@ -186,7 +186,7 @@ stateDiagram-v2
     DeployKubeVip --> WaitHealthy: Wait for CP health
     WaitHealthy --> Joined: Verify in cluster
     Joined --> [*]: Read() verifies
-    
+
     Joined --> NotFound: Read() node missing
     NotFound --> [*]: Destroy completes
 ```
@@ -197,20 +197,20 @@ Joins worker nodes to the cluster.
 
 **Schema:**
 
-| Attribute | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `node_id` | string | yes | Reference to `hephaestus_node.id` |
-| `cluster_id` | string | yes | Reference to `hephaestus_control_plane.id` |
-| `labels` | map(string) | no | Node labels to apply |
-| `taints` | list(object) | no | Node taints to apply |
+| Attribute    | Type         | Required | Description                                |
+| ------------ | ------------ | -------- | ------------------------------------------ |
+| `node_id`    | string       | yes      | Reference to `hephaestus_node.id`          |
+| `cluster_id` | string       | yes      | Reference to `hephaestus_control_plane.id` |
+| `labels`     | map(string)  | no       | Node labels to apply                       |
+| `taints`     | list(object) | no       | Node taints to apply                       |
 
 **Computed:**
 
-| Attribute | Type | Description |
-|-----------|------|-------------|
-| `id` | string | Resource ID |
-| `joined_at` | string | Timestamp when joined |
-| `status` | string | Node status (Ready/NotReady) |
+| Attribute   | Type   | Description                  |
+| ----------- | ------ | ---------------------------- |
+| `id`        | string | Resource ID                  |
+| `joined_at` | string | Timestamp when joined        |
+| `status`    | string | Node status (Ready/NotReady) |
 
 **Lifecycle:**
 
@@ -222,7 +222,7 @@ stateDiagram-v2
     ApplyLabels --> ApplyTaints: Apply node taints
     ApplyTaints --> Joined: Verify in cluster
     Joined --> [*]: Read() verifies
-    
+
     Joined --> LabelsChanged: Update() labels differ
     LabelsChanged --> Joined: Reconcile labels
 ```
@@ -233,37 +233,37 @@ Installs cluster addons via Helm or manifests.
 
 **Schema:**
 
-| Attribute | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `cluster_id` | string | yes | Reference to `hephaestus_control_plane.id` |
-| `name` | string | yes | Addon name (e.g., "cilium") |
-| `type` | string | no | `helm` or `manifest` (default: helm) |
-| `version` | string | no | Chart/manifest version |
-| `namespace` | string | no | Target namespace |
-| `repository` | string | no | Helm repository URL |
-| `values` | map(any) | no | Helm values |
-| `wait` | bool | no | Wait for rollout (default: true) |
-| `timeout` | string | no | Timeout duration (default: 15m) |
+| Attribute    | Type     | Required | Description                                |
+| ------------ | -------- | -------- | ------------------------------------------ |
+| `cluster_id` | string   | yes      | Reference to `hephaestus_control_plane.id` |
+| `name`       | string   | yes      | Addon name (e.g., "cilium")                |
+| `type`       | string   | no       | `helm` or `manifest` (default: helm)       |
+| `version`    | string   | no       | Chart/manifest version                     |
+| `namespace`  | string   | no       | Target namespace                           |
+| `repository` | string   | no       | Helm repository URL                        |
+| `values`     | map(any) | no       | Helm values                                |
+| `wait`       | bool     | no       | Wait for rollout (default: true)           |
+| `timeout`    | string   | no       | Timeout duration (default: 15m)            |
 
 **Computed:**
 
-| Attribute | Type | Description |
-|-----------|------|-------------|
-| `id` | string | Resource ID |
-| `status` | string | Deployment status |
+| Attribute           | Type   | Description                |
+| ------------------- | ------ | -------------------------- |
+| `id`                | string | Resource ID                |
+| `status`            | string | Deployment status          |
 | `installed_version` | string | Actually installed version |
 
 **Built-in Addons:**
 
 The provider includes pre-configured support for common addons:
 
-| Name | Type | Description |
-|------|------|-------------|
-| `cilium` | helm | CNI with kubeProxyReplacement |
-| `tailscale` | helm | Tailscale operator |
-| `nvidia-device-plugin` | manifest | NVIDIA GPU support |
-| `longhorn` | helm | Distributed storage |
-| `cert-manager` | helm | Certificate management |
+| Name                   | Type     | Description                   |
+| ---------------------- | -------- | ----------------------------- |
+| `cilium`               | helm     | CNI with kubeProxyReplacement |
+| `tailscale`            | helm     | Tailscale operator            |
+| `nvidia-device-plugin` | manifest | NVIDIA GPU support            |
+| `longhorn`             | helm     | Distributed storage           |
+| `cert-manager`         | helm     | Certificate management        |
 
 ## Provider Configuration
 
@@ -272,12 +272,12 @@ provider "hephaestus" {
   # SSH Configuration (required)
   ssh_user        = "ubuntu"
   ssh_private_key = file("~/.ssh/id_ed25519")
-  
+
   # SSH Options (optional)
   ssh_timeout          = "30s"
   ssh_connection_attempts = 3
   ssh_use_multiplexing = true  # Reuse connections
-  
+
   # Timeouts (optional)
   node_prep_timeout    = "10m"
   kubeadm_init_timeout = "10m"
@@ -288,17 +288,17 @@ provider "hephaestus" {
 
 ## Internal Architecture
 
-```
+```text
 terraform-provider-hephaestus/
   main.go                           # Provider entry point
   go.mod
   go.sum
-  
+
   internal/
     provider/
       provider.go                   # Provider schema and configuration
       provider_test.go
-      
+
       # Resources
       resource_node.go              # hephaestus_node
       resource_node_test.go
@@ -310,44 +310,44 @@ terraform-provider-hephaestus/
       resource_worker_test.go
       resource_addon.go             # hephaestus_addon
       resource_addon_test.go
-      
+
       # Data Sources
       data_source_cluster.go        # hephaestus_cluster (read-only)
       data_source_node_status.go    # hephaestus_node_status
-      
+
     client/
       client.go                     # Client interface and factory
       ssh.go                        # SSH execution (from RemoteRunner)
       ssh_test.go
-      
+
     executor/
       executor.go                   # Command execution abstraction
       scripts.go                    # Embedded shell scripts
-      
+
     verifier/
       verifier.go                   # State verification (from Verifier)
       evidence.go                   # Evidence types
       checks.go                     # Individual check implementations
-      
+
     kubeadm/
       init.go                       # kubeadm init operations
       join.go                       # kubeadm join operations
       reset.go                      # kubeadm reset operations
       config.go                     # kubeadm config generation
-      
+
     kubevip/
       manifest.go                   # kube-vip manifest generation
       deploy.go                     # Deployment logic
-      
+
     helm/
       client.go                     # Helm operations
       charts.go                     # Built-in chart configs
-      
+
     models/
       node.go                       # Node model
       cluster.go                    # Cluster model
       addon.go                      # Addon model
-      
+
   docs/                             # Auto-generated documentation
     index.md
     resources/
@@ -359,7 +359,7 @@ terraform-provider-hephaestus/
     data-sources/
       cluster.md
       node_status.md
-      
+
   examples/
     basic/                          # Single control plane
       main.tf
@@ -544,39 +544,39 @@ func (r *NodeResource) Create(ctx context.Context, req resource.CreateRequest, r
     if resp.Diagnostics.HasError() {
         return
     }
-    
+
     ip := plan.IP.ValueString()
     version := plan.KubernetesVersion.ValueString()
-    
+
     // Phase 1: Configure OS
     tflog.Info(ctx, "Configuring OS prerequisites", map[string]interface{}{
         "node": plan.Name.ValueString(),
         "ip":   ip,
     })
-    
+
     if err := r.configureOS(ctx, ip); err != nil {
         resp.Diagnostics.AddError("OS Configuration Failed", err.Error())
         return
     }
-    
+
     // Phase 2: Install containerd
     tflog.Info(ctx, "Installing containerd runtime")
     if err := r.installContainerd(ctx, ip); err != nil {
         resp.Diagnostics.AddError("Containerd Installation Failed", err.Error())
         return
     }
-    
+
     // Phase 3: Install kubeadm tools
     tflog.Info(ctx, "Installing kubeadm tools")
     if err := r.installKubeadm(ctx, ip, version); err != nil {
         resp.Diagnostics.AddError("Kubeadm Installation Failed", err.Error())
         return
     }
-    
+
     // Set computed values
     plan.ID = plan.Name
     plan.Phase = types.StringValue("kubeadm_ready")
-    
+
     // Get versions
     if v, err := r.getContainerdVersion(ctx, ip); err == nil {
         plan.ContainerdVersion = types.StringValue(v)
@@ -584,7 +584,7 @@ func (r *NodeResource) Create(ctx context.Context, req resource.CreateRequest, r
     if v, err := r.getKubeadmVersion(ctx, ip); err == nil {
         plan.KubeadmVersion = types.StringValue(v)
     }
-    
+
     resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -594,9 +594,9 @@ func (r *NodeResource) Read(ctx context.Context, req resource.ReadRequest, resp 
     if resp.Diagnostics.HasError() {
         return
     }
-    
+
     ip := state.IP.ValueString()
-    
+
     // Verify node is reachable
     if !r.verifier.CheckSSHReachable(ctx, ip).Passed {
         // Node unreachable - could be temporarily down
@@ -604,11 +604,11 @@ func (r *NodeResource) Read(ctx context.Context, req resource.ReadRequest, resp 
             fmt.Sprintf("Node %s is not reachable via SSH", state.Name.ValueString()))
         return
     }
-    
+
     // Check current phase
     phase := r.determinePhase(ctx, ip)
     state.Phase = types.StringValue(phase)
-    
+
     // Refresh versions
     if v, err := r.getContainerdVersion(ctx, ip); err == nil {
         state.ContainerdVersion = types.StringValue(v)
@@ -616,7 +616,7 @@ func (r *NodeResource) Read(ctx context.Context, req resource.ReadRequest, resp 
     if v, err := r.getKubeadmVersion(ctx, ip); err == nil {
         state.KubeadmVersion = types.StringValue(v)
     }
-    
+
     resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
@@ -627,28 +627,28 @@ func (r *NodeResource) Update(ctx context.Context, req resource.UpdateRequest, r
     if resp.Diagnostics.HasError() {
         return
     }
-    
+
     // Only kubernetes_version can be updated in-place
     // Name, IP, Role changes require replacement (handled by plan modifiers)
-    
+
     if !plan.KubernetesVersion.Equal(state.KubernetesVersion) {
         // Reinstall kubeadm tools with new version
         ip := plan.IP.ValueString()
         version := plan.KubernetesVersion.ValueString()
-        
+
         tflog.Info(ctx, "Updating kubeadm tools version",
             map[string]interface{}{"version": version})
-        
+
         if err := r.installKubeadm(ctx, ip, version); err != nil {
             resp.Diagnostics.AddError("Kubeadm Update Failed", err.Error())
             return
         }
-        
+
         if v, err := r.getKubeadmVersion(ctx, ip); err == nil {
             plan.KubeadmVersion = types.StringValue(v)
         }
     }
-    
+
     resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -658,7 +658,7 @@ func (r *NodeResource) Delete(ctx context.Context, req resource.DeleteRequest, r
     if resp.Diagnostics.HasError() {
         return
     }
-    
+
     // Node cleanup is optional - the node preparation is harmless
     // Real cleanup happens when cluster resources are destroyed
     tflog.Info(ctx, "Node resource deleted from state",
@@ -752,7 +752,7 @@ The provider stores sensitive cluster material in Terraform state:
           },
           "sensitive_attributes": [
             "join_token",
-            "ca_cert_hash", 
+            "ca_cert_hash",
             "certificate_key",
             "kubeconfig"
           ]
@@ -809,14 +809,14 @@ kubeadm bootstrap tokens expire after 24 hours. The provider handles this:
 ```go
 func (r *ControlPlaneResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
     // ... get state ...
-    
+
     // Check token expiry
     if state.TokenExpiry.ValueString() != "" {
         expiry, _ := time.Parse(time.RFC3339, state.TokenExpiry.ValueString())
         if time.Now().Add(1 * time.Hour).After(expiry) {
             // Token will expire soon - refresh it
             tflog.Info(ctx, "Refreshing join token (approaching expiry)")
-            
+
             joinMaterial, err := r.refreshJoinMaterial(ctx, ip)
             if err != nil {
                 resp.Diagnostics.AddWarning("Token Refresh Failed", err.Error())
@@ -871,7 +871,7 @@ graph TD
     CP[hephaestus_control_plane.primary]
     W1[hephaestus_worker.all.w1]
     W2[hephaestus_worker.all.w2]
-    
+
     NODE_CP1 --> CP
     CP --> W1
     CP --> W2
@@ -926,16 +926,16 @@ Test against real VMs in CI:
 # .github/workflows/test.yml
 jobs:
   integration:
-    runs-on: self-hosted  # On libvirt host
+    runs-on: self-hosted # On libvirt host
     steps:
       - uses: actions/checkout@v4
       - uses: hashicorp/setup-terraform@v3
-      
+
       - name: Create test VMs
         run: |
           cd test/fixtures
           tofu apply -auto-approve
-          
+
       - name: Run acceptance tests
         env:
           TF_ACC: "1"
@@ -943,7 +943,7 @@ jobs:
           HEPHAESTUS_SSH_KEY_FILE: "~/.ssh/test_key"
         run: |
           go test -v ./internal/provider/... -timeout 60m
-          
+
       - name: Cleanup
         if: always()
         run: |
@@ -1002,7 +1002,7 @@ locals {
     "k8s-cp-2" = { ip = "10.0.0.202" }
     "k8s-cp-3" = { ip = "10.0.0.203" }
   }
-  
+
   worker_nodes = {
     "k8s-worker-1" = { ip = "10.0.0.204", gpu = false }
     "k8s-worker-2" = { ip = "10.0.0.205", gpu = false }
@@ -1014,7 +1014,7 @@ locals {
 # Prepare all nodes in parallel
 resource "hephaestus_node" "control_planes" {
   for_each = local.control_plane_nodes
-  
+
   name = each.key
   ip   = each.value.ip
   role = "control_plane"
@@ -1022,7 +1022,7 @@ resource "hephaestus_node" "control_planes" {
 
 resource "hephaestus_node" "workers" {
   for_each = local.worker_nodes
-  
+
   name = each.key
   ip   = each.value.ip
   role = each.value.gpu ? "gpu_worker" : "worker"
@@ -1042,7 +1042,7 @@ resource "hephaestus_control_plane_member" "secondary" {
     for name, node in local.control_plane_nodes : name => node
     if name != "k8s-cp-1"
   }
-  
+
   node_id    = hephaestus_node.control_planes[each.key].id
   cluster_id = hephaestus_control_plane.primary.id
 }
@@ -1050,10 +1050,10 @@ resource "hephaestus_control_plane_member" "secondary" {
 # Join workers (in parallel)
 resource "hephaestus_worker" "all" {
   for_each = local.worker_nodes
-  
+
   node_id    = hephaestus_node.workers[each.key].id
   cluster_id = hephaestus_control_plane.primary.id
-  
+
   labels = each.value.gpu ? {
     "nvidia.com/gpu"                     = "true"
     "node-role.kubernetes.io/gpu-worker" = ""
@@ -1067,7 +1067,7 @@ resource "hephaestus_addon" "cilium" {
   cluster_id = hephaestus_control_plane.primary.id
   name       = "cilium"
   version    = "1.16.4"
-  
+
   values = {
     kubeProxyReplacement = true
     hubble = {
@@ -1076,7 +1076,7 @@ resource "hephaestus_addon" "cilium" {
       ui      = { enabled = true }
     }
   }
-  
+
   depends_on = [
     hephaestus_control_plane_member.secondary,
     hephaestus_worker.all
@@ -1088,7 +1088,7 @@ resource "hephaestus_addon" "nvidia" {
   cluster_id = hephaestus_control_plane.primary.id
   name       = "nvidia-device-plugin"
   type       = "manifest"
-  
+
   depends_on = [hephaestus_addon.cilium]
 }
 
@@ -1097,14 +1097,14 @@ resource "hephaestus_addon" "tailscale" {
   count      = var.tailscale_enabled ? 1 : 0
   cluster_id = hephaestus_control_plane.primary.id
   name       = "tailscale"
-  
+
   values = {
     oauth = {
       clientId     = var.tailscale_client_id
       clientSecret = var.tailscale_client_secret
     }
   }
-  
+
   depends_on = [hephaestus_addon.cilium]
 }
 ```
@@ -1232,29 +1232,29 @@ output "tailscale_api_ip" {
 
 ### Attributes Reference
 
-| Attribute | Type | Description |
-|-----------|------|-------------|
-| `oauth_client_id` | string | Tailscale OAuth client ID (required) |
-| `oauth_client_secret` | string | Tailscale OAuth client secret (required, sensitive) |
-| `expose_api_server` | bool | Expose K8s API via Tailscale (default: true) |
-| `api_server_hostname` | string | Tailnet hostname for API (default: "hephaestus-k8s-api") |
-| `enable_subnet_router` | bool | Deploy subnet router (default: false) |
-| `subnet_routes` | list(string) | CIDRs to advertise (default: ["10.244.0.0/16", "10.96.0.0/12"]) |
-| `auth_key` | string | Auth key for subnet router (required if subnet router enabled) |
-| `tags` | list(string) | ACL tags for Tailscale nodes |
+| Attribute              | Type         | Description                                                     |
+| ---------------------- | ------------ | --------------------------------------------------------------- |
+| `oauth_client_id`      | string       | Tailscale OAuth client ID (required)                            |
+| `oauth_client_secret`  | string       | Tailscale OAuth client secret (required, sensitive)             |
+| `expose_api_server`    | bool         | Expose K8s API via Tailscale (default: true)                    |
+| `api_server_hostname`  | string       | Tailnet hostname for API (default: "hephaestus-k8s-api")        |
+| `enable_subnet_router` | bool         | Deploy subnet router (default: false)                           |
+| `subnet_routes`        | list(string) | CIDRs to advertise (default: ["10.244.0.0/16", "10.96.0.0/12"]) |
+| `auth_key`             | string       | Auth key for subnet router (required if subnet router enabled)  |
+| `tags`                 | list(string) | ACL tags for Tailscale nodes                                    |
 
 ### Computed Attributes
 
-| Attribute | Description |
-|-----------|-------------|
-| `installed_version` | Installed Tailscale operator version |
-| `status` | Current status of Tailscale integration |
-| `tailscale_kubeconfig` | Kubeconfig for remote access (sensitive) |
-| `api_server_tailscale_ip` | Tailscale IP of the K8s API |
+| Attribute                 | Description                              |
+| ------------------------- | ---------------------------------------- |
+| `installed_version`       | Installed Tailscale operator version     |
+| `status`                  | Current status of Tailscale integration  |
+| `tailscale_kubeconfig`    | Kubeconfig for remote access (sensitive) |
+| `api_server_tailscale_ip` | Tailscale IP of the K8s API              |
 
 ### Prerequisites
 
-1. Create an OAuth client at https://login.tailscale.com/admin/settings/oauth
+1. Create an OAuth client at <https://login.tailscale.com/admin/settings/oauth>
 2. Required scopes: `devices:core` (write), `auth_keys` (write)
 3. Configure ACL tags in your Tailscale policy:
 

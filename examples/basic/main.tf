@@ -21,9 +21,9 @@ provider "hephaestus" {
 
 # Prepare control plane node
 resource "hephaestus_node" "cp" {
-  name              = "k8s-cp-1"
-  ip                = var.control_plane_ip
-  role              = "control_plane"
+  name               = "k8s-cp-1"
+  ip                 = var.control_plane_ip
+  role               = "control_plane"
   kubernetes_version = var.kubernetes_version
 }
 
@@ -40,9 +40,9 @@ resource "hephaestus_control_plane" "primary" {
 resource "hephaestus_node" "workers" {
   for_each = var.worker_nodes
 
-  name              = each.key
-  ip                = each.value
-  role              = "worker"
+  name               = each.key
+  ip                 = each.value
+  role               = "worker"
   kubernetes_version = var.kubernetes_version
 }
 

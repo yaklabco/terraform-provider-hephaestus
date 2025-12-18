@@ -93,24 +93,24 @@ output "kubeconfig" {
 
 ## Resources
 
-| Resource | Description |
-|----------|-------------|
-| `hephaestus_node` | Prepares a node (OS, containerd, kubeadm) |
-| `hephaestus_control_plane` | Initializes first control plane with kube-vip |
-| `hephaestus_control_plane_member` | Joins additional control planes |
-| `hephaestus_worker` | Joins worker nodes |
-| `hephaestus_addon` | Installs cluster addons (Helm/manifests) |
+| Resource                          | Description                                   |
+| --------------------------------- | --------------------------------------------- |
+| `hephaestus_node`                 | Prepares a node (OS, containerd, kubeadm)     |
+| `hephaestus_control_plane`        | Initializes first control plane with kube-vip |
+| `hephaestus_control_plane_member` | Joins additional control planes               |
+| `hephaestus_worker`               | Joins worker nodes                            |
+| `hephaestus_addon`                | Installs cluster addons (Helm/manifests)      |
 
 ## Provider Configuration
 
-| Attribute | Description | Default |
-|-----------|-------------|---------|
-| `ssh_user` | SSH user for node access | `ubuntu` |
-| `ssh_private_key` | SSH private key content | - |
-| `ssh_private_key_file` | Path to SSH private key | - |
-| `ssh_timeout` | SSH connection timeout | `30s` |
-| `ssh_connection_attempts` | SSH retry attempts | `3` |
-| `ssh_use_multiplexing` | Enable SSH multiplexing | `true` |
+| Attribute                 | Description              | Default  |
+| ------------------------- | ------------------------ | -------- |
+| `ssh_user`                | SSH user for node access | `ubuntu` |
+| `ssh_private_key`         | SSH private key content  | -        |
+| `ssh_private_key_file`    | Path to SSH private key  | -        |
+| `ssh_timeout`             | SSH connection timeout   | `30s`    |
+| `ssh_connection_attempts` | SSH retry attempts       | `3`      |
+| `ssh_use_multiplexing`    | Enable SSH multiplexing  | `true`   |
 
 ## Examples
 

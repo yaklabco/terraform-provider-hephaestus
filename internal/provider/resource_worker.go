@@ -50,11 +50,11 @@ type WorkerResourceModel struct {
 	Status   types.String `tfsdk:"status"`
 }
 
-func (r *WorkerResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
+func (r *WorkerResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + "_worker"
 }
 
-func (r *WorkerResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
+func (r *WorkerResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		MarkdownDescription: `Joins a worker node to an existing Kubernetes cluster.
 
@@ -156,7 +156,7 @@ resource "hephaestus_worker" "nodes" {
 	}
 }
 
-func (r *WorkerResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+func (r *WorkerResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
 	if req.ProviderData == nil {
 		return
 	}
@@ -307,7 +307,12 @@ func (r *WorkerResource) Update(ctx context.Context, req resource.UpdateRequest,
 		// Remove labels that are in old but not in new
 		for k := range oldLabels {
 			if _, exists := labels[k]; !exists {
-				_ = r.removeLabel(ctx, endpointIP, name, k)
+				if err := r.removeLabel(ctx, endpointIP, name, k); err != nil {
+					tflog.Warn(ctx, "Failed to remove label", map[string]interface{}{
+						"label": k,
+						"error": err.Error(),
+					})
+				}
 			}
 		}
 
@@ -344,10 +349,13 @@ func (r *WorkerResource) Delete(ctx context.Context, req resource.DeleteRequest,
 	endpointIP := strings.Split(endpoint, ":")[0]
 
 	drainScript := fmt.Sprintf(`
-kubectl --kubeconfig=/etc/kubernetes/admin.conf drain %s --ignore-daemonsets --delete-emptydir-data --force 2>/dev/null || true
+kubectl --kubeconfig=/etc/kubernetes/admin.conf drain %s \
+  --ignore-daemonsets --delete-emptydir-data --force 2>/dev/null || true
 kubectl --kubeconfig=/etc/kubernetes/admin.conf delete node %s 2>/dev/null || true
 `, name, name)
-	_, _, _ = r.ssh.RunScript(ctx, endpointIP, drainScript)
+	if _, _, err := r.ssh.RunScript(ctx, endpointIP, drainScript); err != nil {
+		tflog.Warn(ctx, "Drain script returned error (may be expected)", map[string]interface{}{"error": err.Error()})
+	}
 
 	// Reset the node
 	resetScript := `set -euo pipefail
@@ -382,15 +390,15 @@ func (r *WorkerResource) ImportState(ctx context.Context, req resource.ImportSta
 }
 
 func (r *WorkerResource) applyLabels(ctx context.Context, cpIP, nodeName string, labels map[string]string) error {
-	for k, v := range labels {
+	for labelKey, labelVal := range labels {
 		var cmd string
-		if v == "" {
-			cmd = fmt.Sprintf("kubectl --kubeconfig=/etc/kubernetes/admin.conf label node %s %s= --overwrite", nodeName, k)
+		if labelVal == "" {
+			cmd = fmt.Sprintf("kubectl --kubeconfig=/etc/kubernetes/admin.conf label node %s %s= --overwrite", nodeName, labelKey)
 		} else {
-			cmd = fmt.Sprintf("kubectl --kubeconfig=/etc/kubernetes/admin.conf label node %s %s=%s --overwrite", nodeName, k, v)
+			cmd = fmt.Sprintf("kubectl --kubeconfig=/etc/kubernetes/admin.conf label node %s %s=%s --overwrite", nodeName, labelKey, labelVal)
 		}
 		if err := r.ssh.RunSudo(ctx, cpIP, cmd); err != nil {
-			return fmt.Errorf("failed to apply label %s: %w", k, err)
+			return fmt.Errorf("failed to apply label %s: %w", labelKey, err)
 		}
 	}
 	return nil

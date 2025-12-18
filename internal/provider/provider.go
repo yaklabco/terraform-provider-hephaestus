@@ -51,13 +51,13 @@ func New(version string) func() provider.Provider {
 }
 
 // Metadata returns the provider type name.
-func (p *HephaestusProvider) Metadata(ctx context.Context, req provider.MetadataRequest, resp *provider.MetadataResponse) {
+func (p *HephaestusProvider) Metadata(_ context.Context, _ provider.MetadataRequest, resp *provider.MetadataResponse) {
 	resp.TypeName = "hephaestus"
 	resp.Version = p.version
 }
 
 // Schema defines the provider-level configuration schema.
-func (p *HephaestusProvider) Schema(ctx context.Context, req provider.SchemaRequest, resp *provider.SchemaResponse) {
+func (p *HephaestusProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		MarkdownDescription: `The Hephaestus provider enables declarative Kubernetes cluster lifecycle 
 management using kubeadm. It provides resources for bootstrapping HA clusters 
@@ -85,13 +85,17 @@ provider "hephaestus" {
 				Optional:            true,
 			},
 			"ssh_private_key": schema.StringAttribute{
-				MarkdownDescription: "SSH private key content for authentication. Either `ssh_private_key` or `ssh_private_key_file` must be set. Can also be set via `HEPHAESTUS_SSH_PRIVATE_KEY` environment variable.",
-				Optional:            true,
-				Sensitive:           true,
+				MarkdownDescription: "SSH private key content for authentication. " +
+					"Either `ssh_private_key` or `ssh_private_key_file` must be set. " +
+					"Can also be set via `HEPHAESTUS_SSH_PRIVATE_KEY` environment variable.",
+				Optional:  true,
+				Sensitive: true,
 			},
 			"ssh_private_key_file": schema.StringAttribute{
-				MarkdownDescription: "Path to SSH private key file. Either `ssh_private_key` or `ssh_private_key_file` must be set. Can also be set via `HEPHAESTUS_SSH_PRIVATE_KEY_FILE` environment variable.",
-				Optional:            true,
+				MarkdownDescription: "Path to SSH private key file. " +
+					"Either `ssh_private_key` or `ssh_private_key_file` must be set. " +
+					"Can also be set via `HEPHAESTUS_SSH_PRIVATE_KEY_FILE` environment variable.",
+				Optional: true,
 			},
 			"ssh_timeout": schema.StringAttribute{
 				MarkdownDescription: "SSH connection timeout as a duration string (e.g., `30s`, `1m`). Default: `30s`",
@@ -218,7 +222,7 @@ func (p *HephaestusProvider) Configure(ctx context.Context, req provider.Configu
 }
 
 // Resources returns the list of resources implemented by this provider.
-func (p *HephaestusProvider) Resources(ctx context.Context) []func() resource.Resource {
+func (p *HephaestusProvider) Resources(_ context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
 		NewNodeResource,
 		NewControlPlaneResource,
@@ -230,7 +234,7 @@ func (p *HephaestusProvider) Resources(ctx context.Context) []func() resource.Re
 }
 
 // DataSources returns the list of data sources implemented by this provider.
-func (p *HephaestusProvider) DataSources(ctx context.Context) []func() datasource.DataSource {
+func (p *HephaestusProvider) DataSources(_ context.Context) []func() datasource.DataSource {
 	return []func() datasource.DataSource{
 		NewTailscaleStatusDataSource,
 	}

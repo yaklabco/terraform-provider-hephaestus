@@ -12,10 +12,8 @@ import (
 	"github.com/yaklab/terraform-provider-hephaestus/internal/provider"
 )
 
-var (
-	// version is set by goreleaser at build time.
-	version string = "dev"
-)
+// version is set by goreleaser at build time.
+var version = "dev"
 
 func main() {
 	var debug bool

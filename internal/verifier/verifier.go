@@ -13,6 +13,12 @@ import (
 	"github.com/yaklab/terraform-provider-hephaestus/internal/client"
 )
 
+const (
+	statusOK       = "ok"
+	statusFailed   = "failed"
+	statusNotFound = "not found"
+)
+
 // Verifier provides verification methods for cluster state.
 type Verifier struct {
 	ssh *client.SSHClient
@@ -81,9 +87,9 @@ func (v *Verifier) CheckOSReady(ctx context.Context, ip string) CheckResult {
 	allPassed := true
 	for _, check := range checks {
 		if v.ssh.Check(ctx, ip, "sudo "+check.command) {
-			ev.Details[check.name] = "ok"
+			ev.Details[check.name] = statusOK
 		} else {
-			ev.Details[check.name] = "failed"
+			ev.Details[check.name] = statusFailed
 			allPassed = false
 		}
 	}
@@ -104,27 +110,25 @@ func (v *Verifier) CheckRuntimeReady(ctx context.Context, ip string) CheckResult
 	}
 
 	// Check containerd binary exists
-	if v.ssh.Check(ctx, ip, "which containerd") {
-		ev.Details["containerd_installed"] = "ok"
-	} else {
-		ev.Details["containerd_installed"] = "failed"
+	if !v.ssh.Check(ctx, ip, "which containerd") {
+		ev.Details["containerd_installed"] = statusFailed
 		ev.Error = "containerd not installed"
 		return CheckResult{Passed: false, Evidence: ev}
 	}
+	ev.Details["containerd_installed"] = statusOK
 
 	// Check socket exists
 	socketExists := v.ssh.Check(ctx, ip, "sudo test -S /run/containerd/containerd.sock -o -S /var/run/containerd/containerd.sock")
-	if socketExists {
-		ev.Details["containerd_socket"] = "ok"
-	} else {
-		ev.Details["containerd_socket"] = "failed"
+	if !socketExists {
+		ev.Details["containerd_socket"] = statusFailed
 		ev.Error = "containerd socket not found"
 		return CheckResult{Passed: false, Evidence: ev}
 	}
+	ev.Details["containerd_socket"] = statusOK
 
 	// Check systemctl status
 	if v.ssh.Check(ctx, ip, "sudo systemctl is-active --quiet containerd") {
-		ev.Details["containerd_active"] = "ok"
+		ev.Details["containerd_active"] = statusOK
 	} else {
 		ev.Details["containerd_active"] = "warning (socket exists)"
 	}
@@ -147,16 +151,16 @@ func (v *Verifier) CheckKubeadmReady(ctx context.Context, ip string) CheckResult
 	for _, bin := range binaries {
 		out, err := v.ssh.Output(ctx, ip, "command -v "+bin)
 		if err != nil || out == "" {
-			ev.Details[bin] = "not found"
+			ev.Details[bin] = statusNotFound
 			allPassed = false
 		} else {
-			ev.Details[bin] = "ok"
+			ev.Details[bin] = statusOK
 		}
 	}
 
 	// Check kubelet service is enabled
 	if v.ssh.Check(ctx, ip, "sudo systemctl is-enabled --quiet kubelet") {
-		ev.Details["kubelet_enabled"] = "ok"
+		ev.Details["kubelet_enabled"] = statusOK
 	} else {
 		ev.Details["kubelet_enabled"] = "not enabled"
 		allPassed = false
@@ -239,7 +243,7 @@ func (v *Verifier) CheckNodeJoined(ctx context.Context, cpIP, nodeName string) C
 		return CheckResult{Passed: true, Evidence: ev}
 	}
 
-	ev.Error = fmt.Sprintf("unexpected output: %s", out)
+	ev.Error = "unexpected output: " + out
 	return CheckResult{Passed: false, Evidence: ev}
 }
 
@@ -264,7 +268,7 @@ func (v *Verifier) CheckNodeReady(ctx context.Context, cpIP, nodeName string) Ch
 		return CheckResult{Passed: true, Evidence: ev}
 	}
 
-	ev.Error = fmt.Sprintf("node status: %s", out)
+	ev.Error = "node status: " + out
 	return CheckResult{Passed: false, Evidence: ev}
 }
 
@@ -288,7 +292,7 @@ func (v *Verifier) CheckAPIReachable(ctx context.Context, ip, endpoint string) C
 		return CheckResult{Passed: true, Evidence: ev}
 	}
 
-	ev.Error = fmt.Sprintf("unexpected API response: %s", out)
+	ev.Error = "unexpected API response: " + out
 	return CheckResult{Passed: false, Evidence: ev}
 }
 
@@ -335,42 +339,43 @@ func (v *Verifier) CheckInfraReady(ctx context.Context, ip string) CheckResult {
 
 	// SSH reachable
 	if !v.ssh.Check(ctx, ip, "true") {
-		ev.Details["ssh"] = "failed"
+		ev.Details["ssh"] = statusFailed
 		ev.Error = "SSH not reachable"
 		return CheckResult{Passed: false, Evidence: ev}
 	}
-	ev.Details["ssh"] = "ok"
+	ev.Details["ssh"] = statusOK
 
 	// Cloud-init complete
-	if v.ssh.Check(ctx, ip, "sudo cloud-init status --wait 2>/dev/null | grep -q 'done'") {
+	switch {
+	case v.ssh.Check(ctx, ip, "sudo cloud-init status --wait 2>/dev/null | grep -q 'done'"):
 		ev.Details["cloud_init"] = "done"
-	} else if v.ssh.Check(ctx, ip, "test -f /var/lib/cloud/instance/boot-finished") {
+	case v.ssh.Check(ctx, ip, "test -f /var/lib/cloud/instance/boot-finished"):
 		ev.Details["cloud_init"] = "done (boot-finished)"
-	} else {
+	default:
 		ev.Details["cloud_init"] = "running"
 		ev.Error = "cloud-init still running"
 		return CheckResult{Passed: false, Evidence: ev}
 	}
 
 	// apt lock available
-	if v.ssh.Check(ctx, ip, "sudo fuser /var/lib/dpkg/lock-frontend 2>/dev/null; test $? -eq 1") {
+	switch {
+	case v.ssh.Check(ctx, ip, "sudo fuser /var/lib/dpkg/lock-frontend 2>/dev/null; test $? -eq 1"):
 		ev.Details["apt_lock"] = "available"
-	} else if v.ssh.Check(ctx, ip, "! sudo lsof /var/lib/dpkg/lock-frontend 2>/dev/null | grep -q .") {
+	case v.ssh.Check(ctx, ip, "! sudo lsof /var/lib/dpkg/lock-frontend 2>/dev/null | grep -q ."):
 		ev.Details["apt_lock"] = "available"
-	} else {
+	default:
 		ev.Details["apt_lock"] = "locked"
 		ev.Error = "apt lock held by another process"
 		return CheckResult{Passed: false, Evidence: ev}
 	}
 
 	// systemd fully booted
-	if v.ssh.Check(ctx, ip, "sudo systemctl is-system-running 2>/dev/null | grep -qE '(running|degraded)'") {
-		ev.Details["systemd"] = "ready"
-	} else {
+	if !v.ssh.Check(ctx, ip, "sudo systemctl is-system-running 2>/dev/null | grep -qE '(running|degraded)'") {
 		ev.Details["systemd"] = "not ready"
 		ev.Error = "systemd not fully booted"
 		return CheckResult{Passed: false, Evidence: ev}
 	}
+	ev.Details["systemd"] = "ready"
 
 	ev.Passed = true
 	return CheckResult{Passed: true, Evidence: ev}

@@ -1,0 +1,11 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+
+# Rules disabled for compatibility with gomdlint
+descriptive-link-text: false
+line-length: false
+no-duplicate-heading: false
+no-hard-tabs: false
+# Disable rules with implementation differences
+blanks-around-fences: false
+link-fragments: false

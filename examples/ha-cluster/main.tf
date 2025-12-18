@@ -37,9 +37,9 @@ locals {
 resource "hephaestus_node" "control_planes" {
   for_each = var.control_plane_nodes
 
-  name              = each.key
-  ip                = each.value
-  role              = "control_plane"
+  name               = each.key
+  ip                 = each.value
+  role               = "control_plane"
   kubernetes_version = var.kubernetes_version
 }
 
@@ -78,9 +78,9 @@ resource "hephaestus_control_plane_member" "secondary" {
 resource "hephaestus_node" "workers" {
   for_each = local.all_workers
 
-  name              = each.key
-  ip                = each.value.ip
-  role              = each.value.gpu ? "gpu_worker" : "worker"
+  name               = each.key
+  ip                 = each.value.ip
+  role               = each.value.gpu ? "gpu_worker" : "worker"
   kubernetes_version = var.kubernetes_version
 }
 
@@ -97,10 +97,10 @@ resource "hephaestus_worker" "nodes" {
   ca_cert_hash  = hephaestus_control_plane.primary.ca_cert_hash
 
   labels = each.value.gpu ? {
-    "nvidia.com/gpu"                        = "true"
-    "node-role.kubernetes.io/gpu-worker"    = ""
-  } : {
-    "node-role.kubernetes.io/worker"        = ""
+    "nvidia.com/gpu"                     = "true"
+    "node-role.kubernetes.io/gpu-worker" = ""
+    } : {
+    "node-role.kubernetes.io/worker" = ""
   }
 
   depends_on = [hephaestus_control_plane_member.secondary]
