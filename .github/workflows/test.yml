@@ -1,0 +1,46 @@
+# Terraform Provider acceptance testing workflow.
+name: Acceptance Tests
+
+on:
+  pull_request:
+    paths-ignore:
+      - 'README.md'
+      - 'docs/**'
+  push:
+    branches: [ main ]
+    paths-ignore:
+      - 'README.md'
+      - 'docs/**'
+
+permissions:
+  contents: read
+
+jobs:
+  # Run acceptance tests in a matrix with Terraform CLI versions
+  acceptance:
+    name: Terraform Provider Acceptance Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        terraform:
+          - '1.6.*'
+          - '1.7.*'
+          - '1.8.*'
+          - '1.9.*'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ matrix.terraform }}
+          terraform_wrapper: false
+      - run: go mod download
+      - env:
+          TF_ACC: "1"
+        run: go test -v -cover ./internal/provider/
+        timeout-minutes: 10

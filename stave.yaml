@@ -1,4 +1,12 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+
 # Stave configuration for terraform-provider-hephaestus
 # See: https://github.com/yaklabco/stave
 
+# Use hash_fast for faster hook execution (skips GOCACHE check)
 hash_fast: true
+# Git hooks configuration
+hooks:
+  pre-push:
+    - target: test:All

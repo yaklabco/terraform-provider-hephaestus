@@ -1,0 +1,30 @@
+# Copy this file to terraform.tfvars and customize
+
+ssh_user             = "ubuntu"
+ssh_private_key_file = "~/.ssh/id_ed25519"
+
+control_plane_nodes = {
+  "k8s-cp-1" = "10.0.0.201"
+  "k8s-cp-2" = "10.0.0.202"
+  "k8s-cp-3" = "10.0.0.203"
+}
+
+first_control_plane = "k8s-cp-1"
+control_plane_vip   = "10.0.0.200"
+
+worker_nodes = {
+  "k8s-worker-1" = "10.0.0.204"
+  "k8s-worker-2" = "10.0.0.205"
+}
+
+gpu_nodes = {
+  "k8s-gpu-1" = "10.0.0.206"
+  "k8s-gpu-2" = "10.0.0.207"
+}
+
+kubernetes_version = "1.31.3"
+cilium_version     = "1.16.4"
+
+# Optional: Tailscale for remote cluster access
+# tailscale_client_id     = "your-client-id"
+# tailscale_client_secret = "your-client-secret"
