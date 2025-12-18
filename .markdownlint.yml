@@ -1,6 +1,10 @@
 # Copyright (c) HashiCorp, Inc.
 # SPDX-License-Identifier: MPL-2.0
 
+# Ignore auto-generated documentation from terraform-plugin-docs
+ignores:
+  - "docs/**"
+
 # Rules disabled for compatibility with gomdlint
 descriptive-link-text: false
 line-length: false
