@@ -395,15 +395,20 @@ func (r *AddonResource) installHelmChart(ctx context.Context, model *AddonResour
 		chartRef = fmt.Sprintf("%s/%s", repoName, name)
 	}
 
-	// Build values file if provided
+	// Write values file if provided
 	var valuesFlag string
+	valuesFile := ""
 	if !model.Values.IsNull() && model.Values.ValueString() != "" {
 		// Validate JSON
 		var js interface{}
 		if err := json.Unmarshal([]byte(model.Values.ValueString()), &js); err != nil {
 			return fmt.Errorf("invalid values JSON: %w", err)
 		}
-		valuesFlag = fmt.Sprintf("--values <(echo '%s')", model.Values.ValueString())
+		valuesFile = fmt.Sprintf("/tmp/hephaestus-helm-values-%s.yaml", name)
+		if err := r.ssh.WriteFile(ctx, cpIP, valuesFile, model.Values.ValueString()); err != nil {
+			return fmt.Errorf("write values file: %w", err)
+		}
+		valuesFlag = "--values " + valuesFile
 	}
 
 	// Build command
@@ -429,11 +434,27 @@ helm upgrade --install %s %s \
 	cmd += " \\\n  --timeout " + timeout
 
 	_, stderr, err := r.ssh.RunScript(ctx, cpIP, cmd)
+
+	// Clean up values file (errors ignored as cleanup is best-effort)
+	if valuesFile != "" {
+		r.cleanupTempFile(ctx, cpIP, valuesFile)
+	}
+
 	if err != nil {
 		return fmt.Errorf("helm install: %w\n%s", err, stderr)
 	}
 
 	return nil
+}
+
+// cleanupTempFile removes a temporary file, ignoring errors as cleanup is best-effort.
+func (r *AddonResource) cleanupTempFile(ctx context.Context, ip, filePath string) {
+	if err := r.ssh.RunSudo(ctx, ip, "rm -f "+filePath); err != nil {
+		tflog.Debug(ctx, "Failed to clean up temp file", map[string]interface{}{
+			"path":  filePath,
+			"error": err.Error(),
+		})
+	}
 }
 
 func (r *AddonResource) installManifest(ctx context.Context, model *AddonResourceModel) error {

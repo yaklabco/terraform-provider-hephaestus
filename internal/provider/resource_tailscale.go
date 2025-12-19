@@ -536,6 +536,12 @@ func (r *TailscaleResource) installOperator(ctx context.Context, model *Tailscal
 		return fmt.Errorf("failed to marshal values: %w", err)
 	}
 
+	// Write values to temp file on remote server
+	valuesFile := "/tmp/hephaestus-tailscale-values.yaml"
+	if err := r.ssh.WriteFile(ctx, cpIP, valuesFile, string(valuesJSON)); err != nil {
+		return fmt.Errorf("failed to write values file: %w", err)
+	}
+
 	// Build install command
 	cmd := fmt.Sprintf(`set -euo pipefail
 export KUBECONFIG=/etc/kubernetes/admin.conf
@@ -544,15 +550,19 @@ helm repo update tailscale
 helm upgrade --install tailscale-operator tailscale/tailscale-operator \
   --namespace %s \
   --create-namespace \
-  --values <(echo '%s') \
+  --values %s \
   --wait \
-  --timeout 10m`, namespace, string(valuesJSON))
+  --timeout 10m`, namespace, valuesFile)
 
 	if !model.Version.IsNull() && model.Version.ValueString() != "" {
 		cmd = strings.Replace(cmd, "--wait", fmt.Sprintf("--version %s --wait", model.Version.ValueString()), 1)
 	}
 
 	_, stderr, err := r.ssh.RunScript(ctx, cpIP, cmd)
+
+	// Clean up values file (errors ignored as cleanup is best-effort)
+	r.cleanupTempFile(ctx, cpIP, valuesFile)
+
 	if err != nil {
 		return fmt.Errorf("helm install failed: %w\n%s", err, stderr)
 	}
@@ -592,12 +602,19 @@ spec:
       protocol: TCP
 `, namespace, hostname, port)
 
-	script := fmt.Sprintf("cat <<'EOFMANIFEST' | kubectl apply --kubeconfig=/etc/kubernetes/admin.conf -f -\n%sEOFMANIFEST", manifest)
-	_, stderr, err := r.ssh.RunScript(ctx, cpIP, script)
-	if err != nil {
-		return fmt.Errorf("failed to create API server service: %w\n%s", err, stderr)
+	// Write manifest to temp file and apply
+	manifestFile := "/tmp/hephaestus-api-svc.yaml"
+	if err := r.ssh.WriteFile(ctx, cpIP, manifestFile, manifest); err != nil {
+		return fmt.Errorf("failed to write manifest: %w", err)
 	}
 
+	cmd := "kubectl apply --kubeconfig=/etc/kubernetes/admin.conf -f " + manifestFile
+	if err := r.ssh.RunSudo(ctx, cpIP, cmd); err != nil {
+		r.cleanupTempFile(ctx, cpIP, manifestFile)
+		return fmt.Errorf("failed to create API server service: %w", err)
+	}
+
+	r.cleanupTempFile(ctx, cpIP, manifestFile)
 	return nil
 }
 
@@ -719,12 +736,19 @@ spec:
         kubernetes.io/os: linux
 `, namespace, authKey, namespace, namespace, namespace, namespace, namespace, routeStr, hostname)
 
-	script := fmt.Sprintf("cat <<'EOFMANIFEST' | kubectl apply --kubeconfig=/etc/kubernetes/admin.conf -f -\n%sEOFMANIFEST", manifest)
-	_, stderr, err := r.ssh.RunScript(ctx, cpIP, script)
-	if err != nil {
-		return fmt.Errorf("failed to deploy subnet router: %w\n%s", err, stderr)
+	// Write manifest to temp file and apply
+	manifestFile := "/tmp/hephaestus-subnet-router.yaml"
+	if err := r.ssh.WriteFile(ctx, cpIP, manifestFile, manifest); err != nil {
+		return fmt.Errorf("failed to write manifest: %w", err)
 	}
 
+	cmd := "kubectl apply --kubeconfig=/etc/kubernetes/admin.conf -f " + manifestFile
+	if err := r.ssh.RunSudo(ctx, cpIP, cmd); err != nil {
+		r.cleanupTempFile(ctx, cpIP, manifestFile)
+		return fmt.Errorf("failed to deploy subnet router: %w", err)
+	}
+
+	r.cleanupTempFile(ctx, cpIP, manifestFile)
 	return nil
 }
 
@@ -939,5 +963,15 @@ func (r *TailscaleResource) refreshStatus(ctx context.Context, model *TailscaleR
 		if err := r.refreshTailscaleIP(ctx, model); err != nil {
 			tflog.Debug(ctx, "Could not refresh Tailscale IP during status refresh", map[string]interface{}{"error": err.Error()})
 		}
+	}
+}
+
+// cleanupTempFile removes a temporary file, ignoring errors as cleanup is best-effort.
+func (r *TailscaleResource) cleanupTempFile(ctx context.Context, ip, filePath string) {
+	if err := r.ssh.RunSudo(ctx, ip, "rm -f "+filePath); err != nil {
+		tflog.Debug(ctx, "Failed to clean up temp file", map[string]interface{}{
+			"path":  filePath,
+			"error": err.Error(),
+		})
 	}
 }
