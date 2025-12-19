@@ -141,9 +141,29 @@ func (c *SSHClient) sshArgs() []string {
 	return args
 }
 
+// buildSSHArgs creates a new slice with SSH args for a specific host and command.
+// This safely copies the base args to avoid slice mutation issues.
+func (c *SSHClient) buildSSHArgs(ip, cmd string) []string {
+	baseArgs := c.sshArgs()
+	args := make([]string, 0, len(baseArgs)+2)
+	args = append(args, baseArgs...)
+	args = append(args, fmt.Sprintf("%s@%s", c.user, ip), cmd)
+	return args
+}
+
+// buildSCPArgs creates a new slice with SCP args for file transfer.
+// This safely copies the base args to avoid slice mutation issues.
+func (c *SSHClient) buildSCPArgs(localPath, ip, remotePath string) []string {
+	baseArgs := c.sshArgs()
+	args := make([]string, 0, len(baseArgs)+2)
+	args = append(args, baseArgs...)
+	args = append(args, localPath, fmt.Sprintf("%s@%s:%s", c.user, ip, remotePath))
+	return args
+}
+
 // Check runs a command and returns true if it succeeds (exit 0).
 func (c *SSHClient) Check(ctx context.Context, ip, cmd string) bool {
-	args := append(c.sshArgs(), fmt.Sprintf("%s@%s", c.user, ip), cmd)
+	args := c.buildSSHArgs(ip, cmd)
 	execCmd := exec.CommandContext(ctx, "ssh", args...)
 	execCmd.Stdout = io.Discard
 	execCmd.Stderr = io.Discard
@@ -157,7 +177,7 @@ func (c *SSHClient) Run(ctx context.Context, ip, cmd string) error {
 
 // RunWithOutput executes a command with custom output writers.
 func (c *SSHClient) RunWithOutput(ctx context.Context, ip, cmd string, stdout, stderr io.Writer) error {
-	args := append(c.sshArgs(), fmt.Sprintf("%s@%s", c.user, ip), cmd)
+	args := c.buildSSHArgs(ip, cmd)
 	execCmd := exec.CommandContext(ctx, "ssh", args...)
 	execCmd.Stdout = stdout
 	execCmd.Stderr = stderr
@@ -176,7 +196,7 @@ func (c *SSHClient) RunWithOutput(ctx context.Context, ip, cmd string, stdout, s
 // Output runs a command and captures stdout.
 func (c *SSHClient) Output(ctx context.Context, ip, cmd string) (string, error) {
 	var stdout, stderr bytes.Buffer
-	args := append(c.sshArgs(), fmt.Sprintf("%s@%s", c.user, ip), cmd)
+	args := c.buildSSHArgs(ip, cmd)
 	execCmd := exec.CommandContext(ctx, "ssh", args...)
 	execCmd.Stdout = &stdout
 	execCmd.Stderr = &stderr
@@ -206,7 +226,7 @@ func (c *SSHClient) OutputSudo(ctx context.Context, ip, cmd string) (string, err
 
 // RunScript streams a script to bash -s via stdin.
 func (c *SSHClient) RunScript(ctx context.Context, ip, script string) (string, string, error) {
-	args := append(c.sshArgs(), fmt.Sprintf("%s@%s", c.user, ip), "sudo bash -s")
+	args := c.buildSSHArgs(ip, "sudo bash -s")
 
 	var stdoutBuf, stderrBuf bytes.Buffer
 	execCmd := exec.CommandContext(ctx, "ssh", args...)
@@ -252,7 +272,7 @@ func (c *SSHClient) WriteFile(ctx context.Context, ip, remotePath, content strin
 
 // Upload copies a local file to a remote path using scp.
 func (c *SSHClient) Upload(ctx context.Context, ip, localPath, remotePath string) error {
-	args := append(c.sshArgs(), localPath, fmt.Sprintf("%s@%s:%s", c.user, ip, remotePath))
+	args := c.buildSCPArgs(localPath, ip, remotePath)
 	execCmd := exec.CommandContext(ctx, "scp", args...)
 	execCmd.Stdout = io.Discard
 	execCmd.Stderr = io.Discard
