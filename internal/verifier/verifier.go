@@ -35,7 +35,6 @@ type Evidence struct {
 	Timestamp time.Time
 	Node      string
 	Check     string
-	Passed    bool
 	Command   string
 	Output    string
 	Error     string
@@ -43,10 +42,11 @@ type Evidence struct {
 }
 
 // CheckResult holds the result of a verification check.
+// Passed indicates whether the check succeeded. Evidence contains
+// diagnostic information including any error message in the Error field.
 type CheckResult struct {
 	Passed   bool
 	Evidence Evidence
-	Err      error
 }
 
 // CheckSSHReachable verifies SSH connectivity to a node.
@@ -58,7 +58,6 @@ func (v *Verifier) CheckSSHReachable(ctx context.Context, ip string) CheckResult
 	}
 
 	if v.ssh.Check(ctx, ip, "true") {
-		ev.Passed = true
 		return CheckResult{Passed: true, Evidence: ev}
 	}
 
@@ -95,7 +94,6 @@ func (v *Verifier) CheckOSReady(ctx context.Context, ip string) CheckResult {
 		}
 	}
 
-	ev.Passed = allPassed
 	if !allPassed {
 		ev.Error = "some OS prerequisites not met"
 	}
@@ -134,7 +132,6 @@ func (v *Verifier) CheckRuntimeReady(ctx context.Context, ip string) CheckResult
 		ev.Details["containerd_active"] = "warning (socket exists)"
 	}
 
-	ev.Passed = true
 	return CheckResult{Passed: true, Evidence: ev}
 }
 
@@ -167,7 +164,6 @@ func (v *Verifier) CheckKubeadmReady(ctx context.Context, ip string) CheckResult
 		allPassed = false
 	}
 
-	ev.Passed = allPassed
 	if !allPassed {
 		ev.Error = "kubeadm prerequisites not ready"
 	}
@@ -182,7 +178,6 @@ func (v *Verifier) CheckAdminConf(ctx context.Context, ip string) CheckResult {
 	}
 
 	if v.ssh.Check(ctx, ip, "sudo test -s /etc/kubernetes/admin.conf") {
-		ev.Passed = true
 		return CheckResult{Passed: true, Evidence: ev}
 	}
 
@@ -198,7 +193,6 @@ func (v *Verifier) CheckKubeVipManifest(ctx context.Context, ip string) CheckRes
 	}
 
 	if v.ssh.Check(ctx, ip, "sudo test -f /etc/kubernetes/manifests/kube-vip.yaml") {
-		ev.Passed = true
 		return CheckResult{Passed: true, Evidence: ev}
 	}
 
@@ -218,7 +212,6 @@ func (v *Verifier) CheckClusterNotInitialized(ctx context.Context, ip string) Ch
 		return CheckResult{Passed: false, Evidence: ev}
 	}
 
-	ev.Passed = true
 	return CheckResult{Passed: true, Evidence: ev}
 }
 
@@ -239,7 +232,6 @@ func (v *Verifier) CheckNodeJoined(ctx context.Context, cpIP, nodeName string) C
 
 	expected := "node/" + nodeName
 	if strings.TrimSpace(out) == expected {
-		ev.Passed = true
 		ev.Output = out
 		return CheckResult{Passed: true, Evidence: ev}
 	}
@@ -264,7 +256,6 @@ func (v *Verifier) CheckNodeReady(ctx context.Context, cpIP, nodeName string) Ch
 	}
 
 	if strings.TrimSpace(out) == "True" {
-		ev.Passed = true
 		ev.Output = "Ready"
 		return CheckResult{Passed: true, Evidence: ev}
 	}
@@ -288,7 +279,6 @@ func (v *Verifier) CheckAPIReachable(ctx context.Context, ip, endpoint string) C
 	}
 
 	if strings.TrimSpace(out) == "ok" {
-		ev.Passed = true
 		ev.Output = out
 		return CheckResult{Passed: true, Evidence: ev}
 	}
@@ -326,7 +316,6 @@ func (v *Verifier) CheckCNIInstalled(ctx context.Context, cpIP string) CheckResu
 	}
 
 	ev.Details["coredns_ready"] = out
-	ev.Passed = true
 	return CheckResult{Passed: true, Evidence: ev}
 }
 
@@ -378,6 +367,5 @@ func (v *Verifier) CheckInfraReady(ctx context.Context, ip string) CheckResult {
 	}
 	ev.Details["systemd"] = "ready"
 
-	ev.Passed = true
 	return CheckResult{Passed: true, Evidence: ev}
 }
