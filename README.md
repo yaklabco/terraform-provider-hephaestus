@@ -138,4 +138,4 @@ TF_ACC=1 go test ./internal/provider/... -v
 
 ## License
 
-MPL-2.0
+MIT

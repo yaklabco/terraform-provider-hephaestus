@@ -1,5 +1,5 @@
-// Copyright (c) YakLab
-// SPDX-License-Identifier: MPL-2.0
+// Copyright (c) 2025 Yaklab Co.
+// SPDX-License-Identifier: MIT
 
 package provider
 
