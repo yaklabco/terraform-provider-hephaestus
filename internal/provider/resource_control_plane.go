@@ -231,8 +231,8 @@ func (r *ControlPlaneResource) Create(ctx context.Context, req resource.CreateRe
 	// Check if already initialized
 	if r.verifier.CheckAdminConf(ctx, ip).Passed {
 		tflog.Info(ctx, "Control plane already initialized")
-		plan.ID = types.StringValue(fmt.Sprintf("cluster-%d", time.Now().Unix()))
-		plan.APIEndpoint = types.StringValue(vip + ":6443")
+		plan.ID = types.StringValue(generateClusterID(vip))
+		plan.APIEndpoint = types.StringValue(fmt.Sprintf("%s:%d", vip, KubernetesAPIPort))
 		r.refreshJoinMaterial(ctx, &plan, ip)
 		r.refreshKubeconfig(ctx, &plan, ip, vip)
 		resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
@@ -285,8 +285,8 @@ func (r *ControlPlaneResource) Create(ctx context.Context, req resource.CreateRe
 	}
 
 	// Set computed values
-	plan.ID = types.StringValue(fmt.Sprintf("cluster-%d", time.Now().Unix()))
-	plan.APIEndpoint = types.StringValue(vip + ":6443")
+	plan.ID = types.StringValue(generateClusterID(vip))
+	plan.APIEndpoint = types.StringValue(fmt.Sprintf("%s:%d", vip, KubernetesAPIPort))
 
 	// Extract join material
 	r.refreshJoinMaterial(ctx, &plan, ip)
@@ -531,7 +531,15 @@ func (r *ControlPlaneResource) refreshKubeconfig(ctx context.Context, model *Con
 	kubeconfig, err := r.ssh.OutputSudo(ctx, ip, "cat /etc/kubernetes/admin.conf")
 	if err == nil {
 		// Replace server address with VIP
-		kubeconfig = strings.ReplaceAll(kubeconfig, fmt.Sprintf("server: https://%s:6443", ip), fmt.Sprintf("server: https://%s:6443", vip))
+		kubeconfig = strings.ReplaceAll(kubeconfig, fmt.Sprintf("server: https://%s:%d", ip, KubernetesAPIPort), fmt.Sprintf("server: https://%s:%d", vip, KubernetesAPIPort))
 		model.Kubeconfig = types.StringValue(kubeconfig)
 	}
+}
+
+// generateClusterID creates a deterministic cluster ID from the VIP address.
+// This ensures IDs are stable across terraform plan/apply cycles.
+func generateClusterID(vip string) string {
+	// Replace dots with dashes for a cleaner ID format
+	sanitized := strings.ReplaceAll(vip, ".", "-")
+	return "cluster-" + sanitized
 }
