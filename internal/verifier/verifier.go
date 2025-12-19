@@ -21,11 +21,12 @@ const (
 
 // Verifier provides verification methods for cluster state.
 type Verifier struct {
-	ssh *client.SSHClient
+	ssh client.CommandExecutor
 }
 
 // New creates a new Verifier with the given SSH client.
-func New(ssh *client.SSHClient) *Verifier {
+// The ssh parameter should implement client.CommandExecutor interface.
+func New(ssh client.CommandExecutor) *Verifier {
 	return &Verifier{ssh: ssh}
 }
 

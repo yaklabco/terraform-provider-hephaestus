@@ -40,7 +40,7 @@ func NewTailscaleResource() resource.Resource {
 }
 
 type TailscaleResource struct {
-	ssh      *client.SSHClient
+	ssh      client.SSHRunner
 	verifier *verifier.Verifier
 	timeouts Timeouts
 }

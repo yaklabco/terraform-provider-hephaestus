@@ -29,7 +29,7 @@ func NewWorkerResource() resource.Resource {
 }
 
 type WorkerResource struct {
-	ssh      *client.SSHClient
+	ssh      client.SSHRunner
 	verifier *verifier.Verifier
 	timeouts Timeouts
 }

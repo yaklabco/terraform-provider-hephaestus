@@ -31,7 +31,7 @@ func NewTailscaleStatusDataSource() datasource.DataSource {
 }
 
 type TailscaleStatusDataSource struct {
-	ssh *client.SSHClient
+	ssh client.CommandExecutor
 }
 
 type TailscaleStatusDataSourceModel struct {

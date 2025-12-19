@@ -242,7 +242,7 @@ func (p *HephaestusProvider) DataSources(_ context.Context) []func() datasource.
 
 // ProviderData holds the configured provider data passed to resources.
 type ProviderData struct {
-	SSHClient *client.SSHClient
+	SSHClient client.SSHRunner
 	Verifier  *verifier.Verifier
 	Timeouts  Timeouts
 }

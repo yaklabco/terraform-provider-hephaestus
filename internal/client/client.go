@@ -17,6 +17,51 @@ import (
 	"time"
 )
 
+// CommandExecutor handles basic command execution over SSH.
+type CommandExecutor interface {
+	// Check runs a command and returns true if it succeeds (exit 0).
+	Check(ctx context.Context, ip, cmd string) bool
+	// Run executes a command on a remote node.
+	Run(ctx context.Context, ip, cmd string) error
+	// Output runs a command and captures stdout.
+	Output(ctx context.Context, ip, cmd string) (string, error)
+	// RunSudo executes a command with sudo.
+	RunSudo(ctx context.Context, ip, cmd string) error
+	// OutputSudo runs a command with sudo and captures stdout.
+	OutputSudo(ctx context.Context, ip, cmd string) (string, error)
+	// RunScript streams a script to bash -s via stdin.
+	RunScript(ctx context.Context, ip, script string) (stdout, stderr string, err error)
+}
+
+// FileTransfer handles file operations over SSH.
+type FileTransfer interface {
+	// WriteFile writes content to a remote file.
+	WriteFile(ctx context.Context, ip, remotePath, content string) error
+	// Upload copies a local file to a remote path using scp.
+	Upload(ctx context.Context, ip, localPath, remotePath string) error
+	// ReadFile fetches a remote file's content.
+	ReadFile(ctx context.Context, ip, remotePath string) (string, error)
+}
+
+// ConnectionManager handles SSH connection lifecycle.
+type ConnectionManager interface {
+	// WaitForSSH waits until SSH is available on a node.
+	WaitForSSH(ctx context.Context, ip string, maxWait time.Duration) error
+	// Cleanup releases all resources held by the SSH client.
+	Cleanup(ctx context.Context) error
+}
+
+// SSHRunner combines all SSH operations into a single interface.
+// This allows for comprehensive mocking in tests.
+type SSHRunner interface {
+	CommandExecutor
+	FileTransfer
+	ConnectionManager
+}
+
+// Ensure SSHClient implements SSHRunner.
+var _ SSHRunner = (*SSHClient)(nil)
+
 // SSHConfig holds configuration for SSH connections.
 type SSHConfig struct {
 	User            string

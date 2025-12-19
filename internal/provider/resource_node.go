@@ -37,7 +37,7 @@ func NewNodeResource() resource.Resource {
 
 // NodeResource defines the resource implementation.
 type NodeResource struct {
-	ssh      *client.SSHClient
+	ssh      client.SSHRunner
 	verifier *verifier.Verifier
 	timeouts Timeouts
 }

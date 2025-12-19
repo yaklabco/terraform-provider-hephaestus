@@ -31,7 +31,7 @@ func NewControlPlaneMemberResource() resource.Resource {
 }
 
 type ControlPlaneMemberResource struct {
-	ssh      *client.SSHClient
+	ssh      client.SSHRunner
 	verifier *verifier.Verifier
 	timeouts Timeouts
 }
