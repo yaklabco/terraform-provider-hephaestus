@@ -447,70 +447,11 @@ kubeadm init \
 }
 
 func (r *ControlPlaneResource) deployKubeVip(ctx context.Context, ip, vip, iface, version string) error {
-	manifest := fmt.Sprintf(`apiVersion: v1
-kind: Pod
-metadata:
-  name: kube-vip
-  namespace: kube-system
-spec:
-  containers:
-  - args:
-    - manager
-    env:
-    - name: KUBECONFIG
-      value: /etc/kubernetes/admin.conf
-    - name: vip_arp
-      value: "true"
-    - name: port
-      value: "6443"
-    - name: vip_interface
-      value: "%s"
-    - name: vip_cidr
-      value: "32"
-    - name: cp_enable
-      value: "true"
-    - name: vip_ddns
-      value: "false"
-    - name: svc_enable
-      value: "false"
-    - name: cp_namespace
-      value: kube-system
-    - name: vip_leaderelection
-      value: "true"
-    - name: vip_leasename
-      value: plndr-cp-lock
-    - name: vip_leaseduration
-      value: "5"
-    - name: vip_renewdeadline
-      value: "3"
-    - name: vip_retryperiod
-      value: "1"
-    - name: address
-      value: "%s"
-    - name: prometheus_server
-      value: :2112
-    image: ghcr.io/kube-vip/kube-vip:%s
-    imagePullPolicy: IfNotPresent
-    name: kube-vip
-    securityContext:
-      capabilities:
-        add:
-        - NET_ADMIN
-        - NET_RAW
-    volumeMounts:
-    - mountPath: /etc/kubernetes/admin.conf
-      name: kubeconfig
-  hostAliases:
-  - hostnames:
-    - kubernetes
-    ip: 127.0.0.1
-  hostNetwork: true
-  volumes:
-  - hostPath:
-      path: /etc/kubernetes/admin.conf
-    name: kubeconfig
-`, iface, vip, version)
-
+	manifest := GenerateKubeVIPManifest(KubeVIPConfig{
+		Interface: iface,
+		VIP:       vip,
+		Version:   version,
+	})
 	return r.ssh.WriteFile(ctx, ip, "/etc/kubernetes/manifests/kube-vip.yaml", manifest)
 }
 
