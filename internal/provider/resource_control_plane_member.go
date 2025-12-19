@@ -21,7 +21,7 @@ import (
 	"github.com/yaklab/terraform-provider-hephaestus/internal/verifier"
 )
 
-const defaultIfaceMember = "eth0"
+// Using DefaultNetworkInterface from constants.go
 
 var _ resource.Resource = &ControlPlaneMemberResource{}
 var _ resource.ResourceWithImportState = &ControlPlaneMemberResource{}
@@ -228,7 +228,7 @@ kubeadm join %s --token %s --discovery-token-ca-cert-hash %s --control-plane --c
 	tflog.Info(ctx, "Deploying kube-vip on member")
 	iface, err := r.ssh.Output(ctx, ip, "ip route show default | head -n 1 | cut -d' ' -f5")
 	if err != nil || iface == "" {
-		iface = defaultIfaceMember
+		iface = DefaultNetworkInterface
 	}
 	if err := r.deployKubeVip(ctx, ip, vip, strings.TrimSpace(iface)); err != nil {
 		resp.Diagnostics.AddWarning("kube-vip Deployment Warning", err.Error())

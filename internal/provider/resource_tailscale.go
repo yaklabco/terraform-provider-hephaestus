@@ -27,11 +27,10 @@ import (
 	"github.com/yaklab/terraform-provider-hephaestus/internal/verifier"
 )
 
-const (
-	defaultHTTPSPort    = 443
-	apiWaitTimeout      = 5 * time.Minute
-	apiWaitPollInterval = 10 * time.Second
-)
+// defaultHTTPSPort is the standard HTTPS port used for API exposure.
+const defaultHTTPSPort = 443
+
+// Using DefaultAPIWaitTimeout and DefaultAPIWaitPollInterval from constants.go
 
 var _ resource.Resource = &TailscaleResource{}
 var _ resource.ResourceWithImportState = &TailscaleResource{}
@@ -774,7 +773,7 @@ func (r *TailscaleResource) waitForAPIServer(ctx context.Context, model *Tailsca
 	tflog.Info(ctx, "Waiting for Tailscale API server proxy")
 
 	// Wait for the tailscale proxy pod to be ready
-	deadline := time.Now().Add(apiWaitTimeout)
+	deadline := time.Now().Add(DefaultAPIWaitTimeout)
 	for time.Now().Before(deadline) {
 		// Check if the proxy is ready by looking for the operator-managed proxy
 		cmd := fmt.Sprintf(`kubectl get pods -n %s -l tailscale.com/parent-resource=kubernetes-api-tailscale `+
@@ -798,7 +797,7 @@ func (r *TailscaleResource) waitForAPIServer(ctx context.Context, model *Tailsca
 			"status":   out,
 			"hostname": hostname,
 		})
-		time.Sleep(apiWaitPollInterval)
+		time.Sleep(DefaultAPIWaitPollInterval)
 	}
 
 	return errors.New("timeout waiting for Tailscale API server proxy")

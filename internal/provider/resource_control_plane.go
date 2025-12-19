@@ -22,11 +22,7 @@ import (
 	"github.com/yaklab/terraform-provider-hephaestus/internal/verifier"
 )
 
-const (
-	defaultNetworkInterface = "eth0"
-	vipWaitTimeout          = 60 * time.Second
-	tokenExpiryHours        = 24
-)
+// Using constants from constants.go for consistency.
 
 var _ resource.Resource = &ControlPlaneResource{}
 var _ resource.ResourceWithImportState = &ControlPlaneResource{}
@@ -264,7 +260,7 @@ func (r *ControlPlaneResource) Create(ctx context.Context, req resource.CreateRe
 		// Auto-detect interface
 		detectedIface, err := r.ssh.Output(ctx, ip, "ip route show default | head -n 1 | cut -d' ' -f5")
 		if err != nil || detectedIface == "" {
-			iface = defaultNetworkInterface
+			iface = DefaultNetworkInterface
 		} else {
 			iface = detectedIface
 		}
@@ -355,7 +351,7 @@ func (r *ControlPlaneResource) Update(ctx context.Context, req resource.UpdateRe
 		if iface == "" {
 			detectedIface, err := r.ssh.Output(ctx, ip, "ip route show default | head -n 1 | cut -d' ' -f5")
 			if err != nil || detectedIface == "" {
-				iface = defaultNetworkInterface
+				iface = DefaultNetworkInterface
 			} else {
 				iface = detectedIface
 			}
@@ -456,11 +452,11 @@ func (r *ControlPlaneResource) deployKubeVip(ctx context.Context, ip, vip, iface
 }
 
 func (r *ControlPlaneResource) waitForVIP(ctx context.Context, ip, vip string) error {
-	timeout := vipWaitTimeout
-	checkInterval := 2 * time.Second
+	timeout := DefaultVIPWaitTimeout
+	checkInterval := DefaultCheckInterval
 	deadline := time.Now().Add(timeout)
 
-	cmd := fmt.Sprintf("curl -sk --connect-timeout 3 https://%s:6443/healthz", vip)
+	cmd := fmt.Sprintf("curl -sk --connect-timeout 3 https://%s:%d/healthz", vip, KubernetesAPIPort)
 
 	for time.Now().Before(deadline) {
 		select {
@@ -514,7 +510,7 @@ func (r *ControlPlaneResource) refreshJoinMaterial(ctx context.Context, model *C
 	token, err := r.ssh.OutputSudo(ctx, ip, "kubeadm token create")
 	if err == nil {
 		model.JoinToken = types.StringValue(strings.TrimSpace(token))
-		model.TokenExpiry = types.StringValue(time.Now().Add(tokenExpiryHours * time.Hour).Format(time.RFC3339))
+		model.TokenExpiry = types.StringValue(time.Now().Add(TokenExpiryHours * time.Hour).Format(time.RFC3339))
 	}
 
 	// Get CA hash

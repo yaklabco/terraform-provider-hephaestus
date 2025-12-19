@@ -3,7 +3,10 @@
 
 package provider
 
-import "fmt"
+import (
+	"fmt"
+	"strconv"
+)
 
 // KubeVIPConfig holds configuration for generating kube-vip manifests.
 type KubeVIPConfig struct {
@@ -39,7 +42,7 @@ spec:
     - name: vip_arp
       value: "true"
     - name: port
-      value: "6443"
+      value: "%s"
     - name: vip_interface
       value: "%s"
     - name: vip_cidr
@@ -86,5 +89,5 @@ spec:
   - hostPath:
       path: /etc/kubernetes/admin.conf
     name: kubeconfig
-`, cfg.Interface, cfg.VIP, version)
+`, strconv.Itoa(KubernetesAPIPort), cfg.Interface, cfg.VIP, version)
 }
