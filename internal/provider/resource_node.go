@@ -105,6 +105,9 @@ resource "hephaestus_node" "workers" {
 			"ip": schema.StringAttribute{
 				Required:            true,
 				MarkdownDescription: "Node IP address for SSH access.",
+				Validators: []validator.String{
+					ValidIPAddress(),
+				},
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},

@@ -12,6 +12,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 
@@ -100,6 +101,9 @@ provider "hephaestus" {
 			"ssh_timeout": schema.StringAttribute{
 				MarkdownDescription: "SSH connection timeout as a duration string (e.g., `30s`, `1m`). Default: `30s`",
 				Optional:            true,
+				Validators: []validator.String{
+					ValidDuration(),
+				},
 			},
 			"ssh_connection_attempts": schema.Int64Attribute{
 				MarkdownDescription: "Number of SSH connection attempts before failing. Default: `3`",
@@ -112,18 +116,30 @@ provider "hephaestus" {
 			"node_prep_timeout": schema.StringAttribute{
 				MarkdownDescription: "Timeout for node preparation operations. Default: `10m`",
 				Optional:            true,
+				Validators: []validator.String{
+					ValidDuration(),
+				},
 			},
 			"kubeadm_init_timeout": schema.StringAttribute{
 				MarkdownDescription: "Timeout for kubeadm init operation. Default: `10m`",
 				Optional:            true,
+				Validators: []validator.String{
+					ValidDuration(),
+				},
 			},
 			"kubeadm_join_timeout": schema.StringAttribute{
 				MarkdownDescription: "Timeout for kubeadm join operations. Default: `5m`",
 				Optional:            true,
+				Validators: []validator.String{
+					ValidDuration(),
+				},
 			},
 			"addon_timeout": schema.StringAttribute{
 				MarkdownDescription: "Timeout for addon installation. Default: `15m`",
 				Optional:            true,
+				Validators: []validator.String{
+					ValidDuration(),
+				},
 			},
 		},
 	}

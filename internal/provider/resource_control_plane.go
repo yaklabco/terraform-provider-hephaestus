@@ -15,6 +15,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 
@@ -114,6 +115,9 @@ output "kubeconfig" {
 			"node_ip": schema.StringAttribute{
 				Required:            true,
 				MarkdownDescription: "IP address of the first control plane node",
+				Validators: []validator.String{
+					ValidIPAddress(),
+				},
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
@@ -121,6 +125,9 @@ output "kubeconfig" {
 			"control_plane_vip": schema.StringAttribute{
 				Required:            true,
 				MarkdownDescription: "Virtual IP for high availability control plane access",
+				Validators: []validator.String{
+					ValidIPAddress(),
+				},
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
@@ -130,6 +137,9 @@ output "kubeconfig" {
 				Computed:            true,
 				Default:             stringdefault.StaticString("10.244.0.0/16"),
 				MarkdownDescription: "Pod network CIDR. Default: `10.244.0.0/16`",
+				Validators: []validator.String{
+					ValidCIDR(),
+				},
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
@@ -139,6 +149,9 @@ output "kubeconfig" {
 				Computed:            true,
 				Default:             stringdefault.StaticString("10.96.0.0/12"),
 				MarkdownDescription: "Service network CIDR. Default: `10.96.0.0/12`",
+				Validators: []validator.String{
+					ValidCIDR(),
+				},
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
