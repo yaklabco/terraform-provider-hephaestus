@@ -31,6 +31,7 @@ type SSHConfig struct {
 type SSHClient struct {
 	user           string
 	privateKeyFile string
+	ownsTempKey    bool // true if we created a temp key file that needs cleanup
 	timeout        time.Duration
 	connAttempts   int
 	useMux         bool
@@ -65,6 +66,7 @@ func NewSSHClient(cfg SSHConfig) (*SSHClient, error) {
 
 	// Handle private key - write to temp file if provided as content
 	var keyFile string
+	var ownsTempKey bool
 	if cfg.PrivateKey != "" {
 		tmpFile, err := os.CreateTemp("", "hephaestus-ssh-key-*")
 		if err != nil {
@@ -82,6 +84,7 @@ func NewSSHClient(cfg SSHConfig) (*SSHClient, error) {
 		}
 		_ = tmpFile.Close()
 		keyFile = tmpFile.Name()
+		ownsTempKey = true
 	} else if cfg.PrivateKeyFile != "" {
 		keyFile = expandHomePath(cfg.PrivateKeyFile)
 	}
@@ -89,6 +92,7 @@ func NewSSHClient(cfg SSHConfig) (*SSHClient, error) {
 	client := &SSHClient{
 		user:           cfg.User,
 		privateKeyFile: keyFile,
+		ownsTempKey:    ownsTempKey,
 		timeout:        timeout,
 		connAttempts:   connAttempts,
 		useMux:         cfg.UseMultiplexing,
@@ -350,6 +354,29 @@ func (c *SSHClient) CloseAll(ctx context.Context) error {
 			}
 		}
 	}
+	return errors.Join(errs...)
+}
+
+// Cleanup releases all resources held by the SSH client.
+// This includes closing SSH control masters and removing any temporary key files.
+// Should be called when the client is no longer needed.
+func (c *SSHClient) Cleanup(ctx context.Context) error {
+	var errs []error
+
+	// Close all SSH control masters
+	if err := c.CloseAll(ctx); err != nil {
+		errs = append(errs, fmt.Errorf("close SSH connections: %w", err))
+	}
+
+	// Remove temporary key file if we created one
+	if c.ownsTempKey && c.privateKeyFile != "" {
+		if err := os.Remove(c.privateKeyFile); err != nil && !os.IsNotExist(err) {
+			errs = append(errs, fmt.Errorf("remove temp key file: %w", err))
+		}
+		c.privateKeyFile = ""
+		c.ownsTempKey = false
+	}
+
 	return errors.Join(errs...)
 }
 
